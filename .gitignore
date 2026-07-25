@@ -1,0 +1,6 @@
+.env
+.env.example
+./.claude
+.venv
+./__pycache__
+.python-version

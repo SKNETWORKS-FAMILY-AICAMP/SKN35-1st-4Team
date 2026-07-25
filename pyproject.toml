@@ -1,0 +1,14 @@
+[project]
+name = "skn35-1st-4team"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10.12"
+dependencies = [
+    "cryptography>=49.0.0",
+    "dotenv>=0.9.9",
+    "pandas>=2.3.3",
+    "pymysql>=1.2.0",
+    "sqlalchemy>=2.0.51",
+    "streamlit>=1.60.0",
+]
