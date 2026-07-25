@@ -54,6 +54,79 @@
     ├── raw/                   # 수집 원본
     └── cleaned/               # 정제 결과 (loaders가 여기서 읽음)
 ```
+## ERD
+```mermaid
+erDiagram
+    %% ============================================================
+    %% 주정차 제한 정보 조회 및 주변 주차장 안내 시스템 - ERD
+    %% GitHub README나 발표자료에 그대로 붙여넣으면 렌더링됩니다.
+    %% ============================================================
+
+    USERS ||--o{ PARKING_LOG : "주차기록 보유"
+
+    ENFORCEMENT_HISTORY {
+        INT history_id PK "AUTO_INCREMENT"
+        VARCHAR address "단속 주소 (idx)"
+        DATETIME enforced_at "단속일시 (idx)"
+        DECIMAL latitude
+        DECIMAL longitude
+    }
+
+    CCTV_INFO {
+        INT cctv_id PK "AUTO_INCREMENT"
+        VARCHAR address "설치 주소"
+        DECIMAL latitude
+        DECIMAL longitude
+        VARCHAR organization "관리기관"
+        VARCHAR purpose "설치 목적"
+    }
+
+    PUBLIC_PARKING_LOT {
+        INT parking_id PK "공공데이터 주차장코드"
+        VARCHAR parking_name
+        VARCHAR address
+        DECIMAL latitude
+        DECIMAL longitude
+        VARCHAR fee "요금정보"
+        VARCHAR operation_time "운영시간"
+    }
+
+    PRIVATE_PARKING_LOT {
+        INT parking_id PK "AUTO_INCREMENT"
+        VARCHAR parking_name
+        VARCHAR address
+        DECIMAL latitude
+        DECIMAL longitude
+        VARCHAR fee
+        VARCHAR operation_time
+        VARCHAR source "크롤링 출처 URL"
+    }
+
+    FAQ {
+        INT faq_id PK "AUTO_INCREMENT"
+        VARCHAR category "크롤링 A/B 구분 기준"
+        VARCHAR question
+        TEXT answer
+        VARCHAR source "출처 URL"
+    }
+
+    USERS {
+        INT user_id PK "AUTO_INCREMENT"
+        VARCHAR username UK "중복 불가"
+        VARCHAR password_hash "해시 저장 (평문 금지)"
+        DATETIME created_at
+    }
+
+    PARKING_LOG {
+        INT log_id PK "AUTO_INCREMENT"
+        INT user_id FK "USERS.user_id (CASCADE)"
+        VARCHAR address
+        DECIMAL latitude
+        DECIMAL longitude
+        DATETIME parked_at
+        BOOLEAN is_charged "유료 여부"
+    }
+```
 
 ## 처음 시작할 때 (팀원 각자 1회)
 
