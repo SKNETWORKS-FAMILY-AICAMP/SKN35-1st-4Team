@@ -2,8 +2,15 @@
 .env.example
 ./.claude
 .venv
-./__pycache__
+__pycache__/  
+#   ./__pycache__ 에서 변경 
+
 .python-version
 # Claude / 에이전트 작업 기록
 .claude/
 .agents/
+
+## ----------------- 혹시 데이터를 직접 재현할 경우를 위해
+data/raw/*.csv
+data/cleaned/*.csv
+## ------------------ 
