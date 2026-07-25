@@ -1,5 +1,5 @@
 """
-[담당: 은미] FAQ 크롤링 A - 공영주차장 이용안내 계열 (BeautifulSoup + requests).
+[담당: 연주 또는 은미] FAQ 크롤링 A - 공영주차장 이용안내 계열 (BeautifulSoup + requests).
 
 데이터 소스: 서울시설공단 공영주차장 FAQ (sisul.or.kr)
     https://www.sisul.or.kr/open_content/parking/bbs/bbsMsgList.do?bcd=faq&cate1=parking&cate2=03
@@ -113,7 +113,7 @@ def _crawl_detail(msg_seq: str, cate2: str) -> str | None:
     if res.status_code != 200:
         return None
     soup = BeautifulSoup(res.text, "html.parser")
-    # 상세 페이지 본문 컨테이너 후보들 (은미가 개발자도구로 실제 클래스명을 확인해서
+    # 상세 페이지 본문 컨테이너 후보들 (개발자도구로 실제 클래스명을 확인해서
     # 더 좁혀도 된다. 못 찾으면 #contents 전체 텍스트를 사용).
     content = soup.select_one(".bbs-view, .board-view, .view-cont") or soup.select_one("#contents")
     return content.get_text(" ", strip=True) if content else None

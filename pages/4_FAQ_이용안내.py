@@ -1,5 +1,5 @@
 """
-[담당: 은미] FAQ - 공영주차장 이용안내 페이지 (크롤링 A).
+[담당: 연주 또는 은미] FAQ - 공영주차장 이용안내 페이지 (크롤링 A).
 
 데이터 소스: 서울시설공단 공영주차장 FAQ (sisul.or.kr, 정적 게시판)
     -> collectors/faq_crawler_a.py 로 수집, FAQ 테이블에 적재
@@ -18,7 +18,7 @@ from common.ui import apply_style, hero
 
 st.set_page_config(page_title="FAQ - 이용안내", page_icon="💬", layout="wide")
 apply_style()
-hero("💬", "FAQ - 공영주차장 이용안내", "정기권, 요금감면, 결제 문제 등 이용 관련 궁금증을 검색하세요. (담당: 은미)")
+hero("💬", "FAQ - 공영주차장 이용안내", "정기권, 요금감면, 결제 문제 등 이용 관련 궁금증을 검색하세요. (담당: 연주 또는 은미)")
 
 # 이 페이지가 담당하는 카테고리 (크롤링 A 수집분)
 MY_CATEGORIES = ["이용안내", "결제오류", "정기권", "요금감면"]

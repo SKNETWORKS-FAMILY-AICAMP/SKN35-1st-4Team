@@ -11,8 +11,8 @@
 | 치훈 | 서울시 불법주정차 단속 정보 (OA-22190) | `collectors/enforcement_history.py`, `pages/1_단속_다발구역.py` |
 | 종원 | 단속 CCTV 위치정보 (OA-20471) | `collectors/cctv_api.py`, `pages/2_CCTV_지도.py` |
 | 승희 | 공영주차장 안내 정보 + 민영주차장 크롤링 | `collectors/public_parking_api.py`, `collectors/private_parking_crawler.py`, `pages/3_주차장_검색.py` |
-| 은미 | 크롤링 A (FAQ - 이용안내 계열) | `collectors/faq_crawler_a.py`, `pages/4_FAQ_이용안내.py` |
-| 연주 | 크롤링 B (FAQ - 단속·견인·이의신청 계열) | `collectors/faq_crawler_b.py`, `pages/5_FAQ_단속견인.py` |
+| 연주 또는 은미 | 크롤링 A (FAQ - 이용안내 계열) | `collectors/faq_crawler_a.py`, `pages/4_FAQ_이용안내.py` |
+| 연주 또는 은미 | 크롤링 B (FAQ - 단속·견인·이의신청 계열) | `collectors/faq_crawler_b.py`, `pages/5_FAQ_단속견인.py` |
 
 ## 폴더 구조
 
@@ -27,8 +27,8 @@
 │   ├── 1_단속_다발구역.py      # 치훈
 │   ├── 2_CCTV_지도.py          # 종원
 │   ├── 3_주차장_검색.py        # 승희
-│   ├── 4_FAQ_이용안내.py       # 은미  ┐ 추후 한 페이지로
-│   └── 5_FAQ_단속견인.py       # 연주  ┘ 통합 예정
+│   ├── 4_FAQ_이용안내.py       # 연주 또는 은미  ┐ 추후 한 페이지로
+│   └── 5_FAQ_단속견인.py       # 연주 또는 은미  ┘ 통합 예정
 │
 ├── common/                    # 공유 유틸
 │   ├── db.py                  # MySQL 연결 + read_sql/execute
@@ -41,8 +41,8 @@
 │   ├── cctv_api.py                # 종원 - 서울 열린데이터광장 Open API
 │   ├── public_parking_api.py      # 승희 - 공영주차장 (공공데이터포털/CSV)
 │   ├── private_parking_crawler.py # 승희 - 민영주차장 크롤링 (골격, 소스 확정 필요)
-│   ├── faq_crawler_a.py           # 은미 - 서울시설공단 FAQ (정적, 확인됨)
-│   └── faq_crawler_b.py           # 연주 - 견인/민원링크/고시공고
+│   ├── faq_crawler_a.py           # 연주 또는 은미 - 서울시설공단 FAQ (정적, 확인됨)
+│   └── faq_crawler_b.py           # 연주 또는 은미 - 견인/민원링크/고시공고
 │
 ├── db/
 │   └── schema.sql             # 전체 테이블 CREATE문 (DBeaver에서 실행)
@@ -106,3 +106,4 @@ DB나 카카오 키가 아직 없어도 모든 페이지는 샘플 데이터로 
 | 종로구시설관리공단 견인 안내 (ijongno.co.kr/www/422) | 정적 페이지 | requests+bs4로 크롤링 확인됨 |
 | 서울시 고시공고 '주정차' 키워드 | JS 렌더링 | Selenium 필요 (faq_crawler_b.py TODO) |
 | 새올민원창구/응답소/국민신문고 | 로그인 필요 | 크롤링 대신 안내 링크로 수록 |
+
