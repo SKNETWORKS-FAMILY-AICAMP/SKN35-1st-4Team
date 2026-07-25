@@ -4,3 +4,6 @@
 .venv
 ./__pycache__
 .python-version
+# Claude / 에이전트 작업 기록
+.claude/
+.agents/
