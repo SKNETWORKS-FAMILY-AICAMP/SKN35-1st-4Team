@@ -31,21 +31,20 @@ CREATE TABLE IF NOT EXISTS CCTV_INFO (
     purpose      VARCHAR(255)
 );
 
--- ------------------------------------------------------------
--- 3~4. 주차장 정보 (승희)
---   두 테이블은 컬럼 구성이 완전히 같다. 검색 페이지가 UNION 해서 쓰고,
---   요금/운영시간을 숫자로 갖고 있어야 예상요금·추천 점수를 계산할 수 있다.
+-- 3. 주차장 정보 (승희) - 공영·민영을 한 테이블에서 관리
+--   공영/민영 구분은 테이블이 아니라 lot_category 컬럼으로 한다.
+--   컬럼 구성이 완전히 같은 두 테이블을 두면 구분 정보가 테이블명과 컬럼에
+--   중복 저장되고, 같은 주차장이 양쪽에 들어가도 PK가 막아주지 못한다.
+--   요금/운영시간을 숫자로 갖고 있어야 예상요금·추천 점수를 계산할 수 있고,
 --   운영시각은 원본 그대로 HHMM 정수(0=00:00, 2400=24:00)로 저장한다.
---   적재: uv run python loaders/load_to_db.py --csv ... --table PUBLIC_PARKING_LOT
--- ------------------------------------------------------------
-
--- 3. 공영주차장 정보 (서울시 공영주차장 안내 정보 OA-13122)
-CREATE TABLE IF NOT EXISTS PUBLIC_PARKING_LOT (
-    parking_id     VARCHAR(50) PRIMARY KEY,  -- 공공데이터의 주차장코드
+--   적재: uv run python loaders/load_to_db.py \
+--             --csv data/cleaned/parking_lot.csv --table PARKING_LOT --if-exists truncate
+CREATE TABLE IF NOT EXISTS PARKING_LOT (
+    parking_id     VARCHAR(50) PRIMARY KEY,  -- 서울시 주차장코드 / STD-xxx(표준데이터)
     parking_name   VARCHAR(255) NOT NULL,
     lot_category   VARCHAR(20),              -- 공영 / 민영
     lot_type       VARCHAR(20),              -- 노상 / 노외 / 부설
-    operation_rule VARCHAR(100),             -- 시간제 / 거주자우선 등
+    operation_rule VARCHAR(100),             -- 시간제 / 거주자우선 / 실시간 연계여부 등
     district       VARCHAR(50),              -- 자치구 (주소에서 추출)
     address        VARCHAR(255) NOT NULL,
     latitude       DECIMAL(10, 8),
@@ -65,45 +64,17 @@ CREATE TABLE IF NOT EXISTS PUBLIC_PARKING_LOT (
     weekend_end    SMALLINT,
     holiday_start  SMALLINT,
     holiday_end    SMALLINT,
-    source         VARCHAR(50),              -- seoul_public / standard / crawl
+    source         VARCHAR(50),              -- seoul_site / seoul_public / standard
     fee            VARCHAR(255),             -- 표시용 요금 문구
     operation_time VARCHAR(255)              -- 표시용 운영시간 문구
 );
 
-CREATE INDEX idx_public_parking_district ON PUBLIC_PARKING_LOT(district);
+CREATE INDEX idx_parking_district ON PARKING_LOT(district, lot_category);
 
--- 4. 민영·부설주차장 정보 (전국주차장정보표준데이터)
-CREATE TABLE IF NOT EXISTS PRIVATE_PARKING_LOT (
-    parking_id     VARCHAR(50) PRIMARY KEY,
-    parking_name   VARCHAR(255) NOT NULL,
-    lot_category   VARCHAR(20),
-    lot_type       VARCHAR(20),
-    operation_rule VARCHAR(100),
-    district       VARCHAR(50),
-    address        VARCHAR(255),
-    latitude       DECIMAL(10, 8),
-    longitude      DECIMAL(11, 8),
-    phone          VARCHAR(50),
-    capacity       INT,
-    pay_type       VARCHAR(20),
-    base_fee       INT,
-    base_time      INT,
-    add_fee        INT,
-    add_time       INT,
-    day_max_fee    INT,
-    monthly_fee    INT,
-    weekday_start  SMALLINT,
-    weekday_end    SMALLINT,
-    weekend_start  SMALLINT,
-    weekend_end    SMALLINT,
-    holiday_start  SMALLINT,
-    holiday_end    SMALLINT,
-    source         VARCHAR(50),
-    fee            VARCHAR(255),
-    operation_time VARCHAR(255)
-);
-
-CREATE INDEX idx_private_parking_district ON PRIVATE_PARKING_LOT(district);
+-- 4. (예약) 3번 테이블로 통합됨
+--    이전 스키마의 PUBLIC_PARKING_LOT / PRIVATE_PARKING_LOT 를 이미 만들었다면:
+--      DROP TABLE IF EXISTS PUBLIC_PARKING_LOT;
+--      DROP TABLE IF EXISTS PRIVATE_PARKING_LOT;
 
 -- 5. FAQ (은미: 이용안내 계열 / 연주: 단속·견인·이의신청 계열 - 같은 테이블 공유)
 CREATE TABLE IF NOT EXISTS FAQ (

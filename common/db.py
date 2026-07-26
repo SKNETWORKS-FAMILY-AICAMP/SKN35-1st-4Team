@@ -6,7 +6,7 @@
 
     # 바인드 파라미터는 SQLAlchemy text() 스타일(:name)을 사용한다.
     df = read_sql(
-        "SELECT * FROM PUBLIC_PARKING_LOT WHERE address LIKE :addr",
+        "SELECT * FROM PARKING_LOT WHERE address LIKE :addr",
         {"addr": "%종로구%"},
     )
 

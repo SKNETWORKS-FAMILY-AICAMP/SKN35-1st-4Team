@@ -4,14 +4,12 @@
 기능
     자치구/키워드/구분 필터 -> 예상 주차요금 계산 -> 추천 점수 정렬 -> 지도 + 목록
 
-데이터 흐름 (자세한 내용은 common/parking_data.py)
-    공영  서울시 공영주차장 안내 정보(OA-13122)  -> collectors/public_parking_api.py
-    민영  전국주차장정보표준데이터              -> collectors/private_parking_crawler.py
-    여유  서울시 실시간 주차정보(OA-21709)      -> collectors/realtime_parking_api.py
-    통합  이름/좌표 기준 중복 제거              -> collectors/merge_parking.py
-    추천  거리·여유·요금 가중 점수              -> common/recommend.py
+데이터 흐름
+    수집  주차정보안내시스템 + 실시간 여유  -> collectors/seoul_parking.py
+    로딩  DB -> CSV -> 즉석 수집 폴백      -> common/parking_data.py
+    계산  예상요금 · 운영여부 · 추천 점수    -> common/recommend.py
 
-DB가 없어도 저장소의 원본 CSV로 바로 동작한다.
+DB가 없어도 data/cleaned/parking_lot.csv 로 바로 동작한다.
 """
 
 import pandas as pd
@@ -35,7 +33,7 @@ hero("🅿️", "주차장 검색", "공영·민영 주차장을 한 번에 검�
 
 CATEGORY_COLOR = {"공영": "#2ec4b6", "민영": "#ff9f1c"}
 
-# 주차정보안내시스템 수집 범위(common/parking_data.SITE_DISTRICTS)와 맞춘 기본 자치구
+# 수집 범위(common/parking_data.DISTRICTS)와 맞춘 기본 자치구
 DEFAULT_DISTRICT = "종로구"
 
 # 반경 검색의 기준점으로 쓸 서울 주요 지점 (카카오 REST 키가 없어 주소 검색 대신 사용)
@@ -87,7 +85,6 @@ with st.sidebar:
 
     only_open = st.toggle("지금 운영 중인 곳만", value=True, key="only_open")
     only_free = st.toggle("무료 주차장만", value=False, key="only_free")
-    only_mappable = st.toggle("좌표 있는 곳만 (지도 표시 가능)", value=False, key="only_mappable")
 
     st.subheader("반경 검색", divider="gray")
     center_name = st.selectbox("기준 위치", ["사용 안 함", *LANDMARKS], key="center")
@@ -120,9 +117,6 @@ if keyword:
 if only_free:
     is_free = filtered["base_fee"].fillna(0).le(0) & filtered["add_fee"].fillna(0).le(0)
     filtered = filtered[is_free]
-
-if only_mappable:
-    filtered = filtered[filtered[["latitude", "longitude"]].notna().all(axis=1)]
 
 # 반경 검색: 기준점을 고르면 거리 계산 후 반경 안만 남긴다 (좌표 없는 곳은 자동 제외)
 has_center = center_name != "사용 안 함"
@@ -202,7 +196,6 @@ else:
             "name": ranked["parking_name"],
             "lat": ranked["latitude"],
             "lng": ranked["longitude"],
-            "address": ranked["address"],
             "category": ranked["lot_category"],
             "info": (
                 ranked["address"].fillna("")
@@ -229,19 +222,11 @@ else:
             center_lng=map_center[1],
             category_colors=CATEGORY_COLOR,
             level=5 if has_center else 7,
-            geocode_missing=True,  # 좌표 없는 공영주차장은 주소로 지오코딩해서 찍는다
         ),
         height=580,
     )
-    missing_coord = len(ranked) - len(mappable)
-    if missing_coord:
-        st.caption(
-            f"좌표 보유 {len(mappable):,}곳은 바로 표시되고, 좌표가 없는 {missing_coord:,}곳은 "
-            "주소로 지오코딩해 최대 80곳까지 추가로 표시됩니다. "
-            "`collectors/seoul_parking_crawler.py`로 해당 자치구를 수집하면 좌표가 채워집니다."
-        )
-    else:
-        st.caption(f"검색 결과 {len(mappable):,}곳 모두 좌표를 갖고 있어 지도에 그대로 표시됩니다.")
+    if len(mappable) < len(ranked):
+        st.caption(f"검색 결과 {len(ranked):,}곳 중 좌표가 있는 {len(mappable):,}곳만 지도에 표시됩니다.")
 
 # ── 목록 ──────────────────────────────────────────────────────
 st.subheader("검색 결과", divider="gray")
