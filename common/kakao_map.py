@@ -20,6 +20,15 @@ import pandas as pd
 
 DEFAULT_COLOR = "#4361ee"
 
+def _coord(value) -> float | None:
+    """좌표를 float로. 결측/변환불가면 None (지오코딩 대상이 된다)."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if pd.isna(number) else number
+
+
 def build_map_html(
     df: pd.DataFrame,
     app_key: str,
@@ -28,26 +37,46 @@ def build_map_html(
     category_colors: dict[str, str] | None = None,
     level: int = 6,
     height: int = 600,
+    geocode_missing: bool = False,
+    geocode_limit: int = 80,
 ) -> str:
     """마커가 찍힌 카카오맵 HTML을 문자열로 반환.
 
     df는 최소한 name, lat, lng, category, info 컬럼을 가지고 있어야 한다.
+
+    geocode_missing=True 로 두면 lat/lng이 비어 있는 행을 address 컬럼 기준으로
+    브라우저에서 지오코딩해 마커를 찍는다 (카카오맵 JS SDK의 services 라이브러리 사용).
+    공영주차장 데이터처럼 좌표 결측이 많은 경우에만 켜면 된다. 기본값은 꺼짐이라
+    기존 호출부(CCTV 지도 등)의 동작은 그대로다.
     """
     category_colors = category_colors or {}
 
     # 마커 데이터를 JSON으로 한 번에 넘긴다 (행별 f-string 이스케이프 문제 방지)
-    markers = [
-        {
-            "name": str(row["name"]),
-            "lat": float(row["lat"]),
-            "lng": float(row["lng"]),
-            "category": str(row.get("category", "")),
-            "info": str(row.get("info", "")),
-            "color": category_colors.get(row.get("category", ""), DEFAULT_COLOR),
-        }
-        for _, row in df.iterrows()
-    ]
+    markers = []
+    pending = 0
+    for _, row in df.iterrows():
+        lat, lng = _coord(row["lat"]), _coord(row["lng"])
+        address = str(row.get("address", "") or "")
+
+        if lat is None or lng is None:
+            # 좌표가 없는 행은 지오코딩을 켰고 주소가 있고 한도 안일 때만 넘긴다
+            if not (geocode_missing and address and pending < geocode_limit):
+                continue
+            pending += 1
+
+        markers.append(
+            {
+                "name": str(row["name"]),
+                "lat": lat,
+                "lng": lng,
+                "address": address,
+                "category": str(row.get("category", "")),
+                "info": str(row.get("info", "")),
+                "color": category_colors.get(row.get("category", ""), DEFAULT_COLOR),
+            }
+        )
     markers_json = json.dumps(markers, ensure_ascii=False)
+    sdk_libraries = "&libraries=services" if geocode_missing else ""
 
     # 범례 (카테고리 색상 매핑이 있을 때만)
     legend_items = "".join(
@@ -117,6 +146,20 @@ def build_map_html(
                 width:10px; height:10px; border-radius:50%;
                 border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.3);
             }}
+
+            /* SDK 로드 실패 안내 */
+            .sdk-error {{
+                display:flex; flex-direction:column; justify-content:center;
+                height:100%; box-sizing:border-box;
+                background:#fff7f7; border:1px solid #f5b5b5; border-radius:14px;
+                padding:24px 28px; color:#b91c1c;
+                font-family:'Pretendard', -apple-system, 'Malgun Gothic', sans-serif;
+                font-size:13.5px; line-height:1.7;
+            }}
+            .sdk-error code {{
+                background:#fdeaea; padding:1px 6px; border-radius:5px; font-size:12.5px;
+            }}
+            .sdk-error .hint {{ display:block; margin-top:10px; color:#7a5252; font-size:12.5px; }}
         </style>
     </head>
     <body>
@@ -124,8 +167,24 @@ def build_map_html(
             {legend_html}
             <div id="map"></div>
         </div>
-        <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={app_key}"></script>
+        <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={app_key}{sdk_libraries}"></script>
         <script>
+            // SDK가 안 붙으면(키 오류/도메인 미등록) 지도가 그냥 빈 화면이 되어 원인을 알 수 없다.
+            // 가장 흔한 원인은 "지금 접속 중인 주소:포트"가 카카오 콘솔에 등록되지 않은 경우다.
+            if (!window.kakao || !window.kakao.maps) {{
+                document.getElementById('map').innerHTML =
+                    '<div class="sdk-error">'
+                    + '<b>카카오맵 SDK를 불러오지 못했습니다.</b><br/>'
+                    + '카카오 개발자 콘솔 &gt; 내 애플리케이션 &gt; 앱 설정 &gt; 플랫폼 &gt; Web 에<br/>'
+                    + '<code>' + (window.parent !== window ? document.referrer || '현재 주소' : location.origin) + '</code>'
+                    + ' 를 사이트 도메인으로 등록했는지 확인하세요.<br/>'
+                    + '<span class="hint">포트가 다르면 다른 도메인으로 취급됩니다 '
+                    + '(localhost:8501 등록 → localhost:8502는 차단).<br/>'
+                    + '.env 의 KAKAO_JS_KEY 가 JavaScript 키인지도 확인하세요 (REST 키 아님).</span>'
+                    + '</div>';
+                throw new Error('Kakao Maps SDK not loaded');
+            }}
+
             var map = new kakao.maps.Map(document.getElementById('map'), {{
                 center: new kakao.maps.LatLng({center_lat}, {center_lng}),
                 level: {level}
@@ -135,9 +194,7 @@ def build_map_html(
             var markers = {markers_json};
             var openBubble = null;
 
-            markers.forEach(function(m) {{
-                var pos = new kakao.maps.LatLng(m.lat, m.lng);
-
+            function drawMarker(m, pos) {{
                 // 원형 커스텀 마커
                 var pinEl = document.createElement('div');
                 pinEl.className = 'pin';
@@ -162,7 +219,28 @@ def build_map_html(
                     bubble.setMap(map);
                     openBubble = bubble;
                 }});
+            }}
+
+            var needGeocode = [];
+            markers.forEach(function(m) {{
+                if (m.lat === null || m.lng === null) {{ needGeocode.push(m); return; }}
+                drawMarker(m, new kakao.maps.LatLng(m.lat, m.lng));
             }});
+
+            // 좌표가 없는 주차장은 주소로 지오코딩해서 찍는다.
+            // 한꺼번에 쏘면 실패하므로 60ms 간격으로 하나씩 요청한다.
+            if (needGeocode.length && window.kakao && kakao.maps.services) {{
+                var geocoder = new kakao.maps.services.Geocoder();
+                needGeocode.forEach(function(m, i) {{
+                    setTimeout(function() {{
+                        geocoder.addressSearch(m.address, function(result, status) {{
+                            if (status === kakao.maps.services.Status.OK && result.length) {{
+                                drawMarker(m, new kakao.maps.LatLng(result[0].y, result[0].x));
+                            }}
+                        }});
+                    }}, i * 60);
+                }});
+            }}
 
             // 지도 빈 곳 클릭 시 말풍선 닫기
             kakao.maps.event.addListener(map, 'click', function() {{

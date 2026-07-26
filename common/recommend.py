@@ -1,11 +1,14 @@
 """
-공영주차장 추천 로직 (순수 함수 모듈).
+[담당: 승희] 주차장 추천 로직 + 표시용 텍스트 (순수 함수 모듈).
 
-Streamlit에 의존하지 않는 계산 전용 모듈이라 단독 테스트가 쉽다:
+Streamlit/DB에 의존하지 않는 계산 전용 모듈이라 단독 테스트가 쉽다:
     uv run python common/recommend.py     # 자체 테스트 실행
 
 추천 점수 = 거리 점수 × w1 + 여유 점수 × w2 + 요금 점수 × w3
 각 점수는 0~1로 정규화되며, 가중치는 화면의 슬라이더로 사용자가 조절한다.
+
+공영/민영 구분 없이 동일한 컬럼 규약(base_fee, add_fee, weekday_start ...)만 맞으면
+그대로 동작한다. 컬럼 규약은 collectors/merge_parking.py의 TABLE_COLUMNS 참고.
 """
 
 from datetime import datetime
@@ -217,10 +220,12 @@ def rank_parking_lots(
     out["score_availability"] = availability_score(out)
     out["score_fee"] = fee_score(out["estimated_fee"])
 
+    # 가중치를 전부 0으로 내리면 점수가 전부 0이 되어 순위가 무의미해진다 -> 균등 가중치로
+    if w_distance + w_availability + w_fee <= 0:
+        w_distance = w_availability = w_fee = 1.0
+
     # 가중치 정규화 (합이 1이 되도록) - 슬라이더 조합이 뭐든 점수 범위가 0~1로 유지됨
     total_weight = w_distance + w_availability + w_fee
-    if total_weight <= 0:
-        total_weight = 1.0
 
     out["total_score"] = (
         out["score_distance"] * w_distance
@@ -229,6 +234,77 @@ def rank_parking_lots(
     ) / total_weight
 
     return out.sort_values("total_score", ascending=False).reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# 5) 표시용 텍스트 (지도 말풍선 / 표 / DB의 fee·operation_time 컬럼)
+# ---------------------------------------------------------------------------
+def format_fee(row: pd.Series) -> str:
+    """요금 컬럼들을 사람이 읽는 한 줄로 만든다.
+
+    >>> format_fee(pd.Series({"base_fee": 430, "base_time": 5, "add_fee": 430, "add_time": 5}))
+    '기본 5분 430원 / 추가 5분당 430원'
+    """
+    base_fee = _to_float(row.get("base_fee"))
+    base_time = _to_float(row.get("base_time"))
+    add_fee = _to_float(row.get("add_fee"))
+    add_time = _to_float(row.get("add_time"))
+    day_max = _to_float(row.get("day_max_fee"))
+
+    if base_fee <= 0 and add_fee <= 0:
+        return "무료"
+
+    parts = [f"기본 {base_time:.0f}분 {base_fee:,.0f}원"]
+    if add_fee > 0 and add_time > 0:
+        parts.append(f"추가 {add_time:.0f}분당 {add_fee:,.0f}원")
+    if day_max > 0:
+        parts.append(f"일 최대 {day_max:,.0f}원")
+    return " / ".join(parts)
+
+
+def format_hours(row: pd.Series) -> str:
+    """평일/주말 운영시간을 'HH:MM~HH:MM' 형태의 한 줄로 만든다."""
+
+    def one(start_col: str, end_col: str) -> str | None:
+        start = _hhmm_to_minutes(row.get(start_col))
+        end = _hhmm_to_minutes(row.get(end_col))
+        if start is None or end is None:
+            return None
+        if start == 0 and end >= 1440:
+            return "24시간"
+        if start == 0 and end == 0:
+            return "미운영"
+        return f"{start // 60:02d}:{start % 60:02d}~{end // 60:02d}:{end % 60:02d}"
+
+    weekday = one("weekday_start", "weekday_end")
+    weekend = one("weekend_start", "weekend_end")
+
+    if weekday is None and weekend is None:
+        return "운영시간 정보없음"
+    if weekday == weekend:
+        return f"매일 {weekday}"
+    return " / ".join(
+        text for text in (f"평일 {weekday}" if weekday else None,
+                          f"주말 {weekend}" if weekend else None)
+        if text
+    )
+
+
+def format_availability(row: pd.Series) -> str:
+    """실시간 주차 여유를 '여유 863/1260면' 형태로 표시. 정보 없으면 총 면수만."""
+    capacity = _to_float(row.get("capacity"))
+    available = row.get("available")
+
+    try:
+        has_available = available is not None and not pd.isna(available)
+    except (TypeError, ValueError):
+        has_available = False
+
+    if has_available and capacity > 0:
+        return f"여유 {float(available):,.0f}/{capacity:,.0f}면"
+    if capacity > 0:
+        return f"총 {capacity:,.0f}면"
+    return "주차면 정보없음"
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +367,27 @@ if __name__ == "__main__":
     by_fee = rank_parking_lots(sample, 1.0, 2, w_distance=0, w_availability=0,
                                w_fee=1, now=datetime(2026, 7, 27, 14, 0))
     assert by_fee.iloc[0]["parking_name"] == "멀지만 무료"
+
+    # 가중치를 전부 0으로 내려도 점수가 전부 0이 되지 않고 균등 가중치로 동작해야 한다
+    all_zero = rank_parking_lots(sample, 1.0, 2, w_distance=0, w_availability=0,
+                                 w_fee=0, now=datetime(2026, 7, 27, 14, 0))
+    assert all_zero["total_score"].max() > 0, "가중치 0 조합에서도 순위가 나와야 함"
+    assert all_zero["total_score"].between(0, 1).all()
+
+    # 표시용 텍스트 검증
+    assert format_fee(pd.Series({"base_fee": 430, "base_time": 5, "add_fee": 430, "add_time": 5})) \
+        == "기본 5분 430원 / 추가 5분당 430원"
+    assert format_fee(pd.Series({"base_fee": 0, "add_fee": 0})) == "무료"
+    assert format_fee(pd.Series({"base_fee": pd.NA, "add_fee": pd.NA})) == "무료", "NA도 안전하게"
+    assert format_hours(pd.Series({"weekday_start": 0, "weekday_end": 2400,
+                                   "weekend_start": 0, "weekend_end": 2400})) == "매일 24시간"
+    assert format_hours(pd.Series({"weekday_start": 900, "weekday_end": 1900,
+                                   "weekend_start": 0, "weekend_end": 0})) \
+        == "평일 09:00~19:00 / 주말 미운영"
+    assert format_hours(pd.Series({})) == "운영시간 정보없음"
+    assert format_availability(pd.Series({"capacity": 1260, "available": 863})) == "여유 863/1,260면"
+    assert format_availability(pd.Series({"capacity": 1260, "available": pd.NA})) == "총 1,260면"
+    assert format_availability(pd.Series({})) == "주차면 정보없음"
 
     print("✅ 추천 로직 테스트 전부 통과")
     print(ranked[["parking_name", "distance_km", "estimated_fee", "total_score"]].to_string(index=False))
