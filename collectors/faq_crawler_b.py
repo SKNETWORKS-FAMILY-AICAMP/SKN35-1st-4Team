@@ -1,5 +1,5 @@
 """
-[담당: 연주] FAQ 크롤링 B - 단속·견인·이의신청 계열 (BeautifulSoup + requests).
+[담당: 연주 또는 은미] FAQ 크롤링 B - 단속·견인·이의신청 계열 (BeautifulSoup + requests).
 
 데이터 소스 (실제로 열어보고 확인한 결과):
 1) 종로구시설관리공단 견인보관소 운영안내 (https://www.ijongno.co.kr/www/422)
@@ -104,7 +104,7 @@ def crawl_gosi() -> list[dict]:
     """서울시 고시공고에서 '주정차' 키워드 공고를 수집 (TODO: Selenium 구현).
 
     seoul.go.kr 고시공고는 requests로 요청하면 본문이 비어 오는 것을 확인했다.
-    연주가 구현할 때 순서:
+    구현할 때 순서:
         1) selenium으로 고시공고 검색 페이지 열기 ('주정차' 검색)
         2) driver.page_source를 BeautifulSoup에 넘겨 제목/날짜/링크 추출
         3) {"category": "고시공고", "question": 제목, "answer": 요약, "source": 링크}
@@ -112,7 +112,7 @@ def crawl_gosi() -> list[dict]:
     참고 구현 패턴: 이전 스캐폴드의 region_rule_crawler.py (Selenium은 렌더링만,
     파싱은 항상 BeautifulSoup에 넘기는 구조).
     """
-    print("TODO(연주): 서울시 고시공고 Selenium 크롤링 구현 예정 - 현재는 빈 목록 반환")
+    print("TODO: 서울시 고시공고 Selenium 크롤링 구현 예정 - 현재는 빈 목록 반환")
     return []
 
 

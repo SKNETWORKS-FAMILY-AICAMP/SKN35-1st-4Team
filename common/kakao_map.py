@@ -20,7 +20,6 @@ import pandas as pd
 
 DEFAULT_COLOR = "#4361ee"
 
-
 def build_map_html(
     df: pd.DataFrame,
     app_key: str,
