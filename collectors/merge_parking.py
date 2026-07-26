@@ -40,7 +40,8 @@ TABLE_COLUMNS = [
 ]
 
 # 중복일 때 어느 소스를 '대표'로 남길지 (숫자가 작을수록 우선)
-SOURCE_PRIORITY = {"seoul_public": 0, "standard": 1, "crawl": 2}
+#   seoul_site 를 1순위로 두는 이유: 좌표를 100% 갖고 있어서 지도 표시에 가장 유리하다.
+SOURCE_PRIORITY = {"seoul_site": 0, "seoul_public": 1, "standard": 2, "crawl": 3, "sample": 4}
 
 DEFAULT_MERGE_DISTANCE_M = 50
 
@@ -137,17 +138,47 @@ def _coalesce(primary: pd.Series, others: list[pd.Series]) -> pd.Series:
     return merged
 
 
-def dedupe(df: pd.DataFrame, distance_m: int = DEFAULT_MERGE_DISTANCE_M) -> pd.DataFrame:
-    """이름 정규화 + 좌표 근접으로 중복 주차장을 하나로 합친다."""
-    if df.empty:
+def dedupe_by_id(df: pd.DataFrame) -> pd.DataFrame:
+    """주차장코드가 같은 행을 먼저 합친다 (이름 비교보다 확실하다).
+
+    서울시 공영주차장 CSV와 주차정보안내시스템은 같은 '주차장코드'를 쓰기 때문에,
+    이름이 달라도("관철동 공영주차장(시)" vs "관철동공영") 코드가 같으면 같은 곳이다.
+    표준데이터는 STD-, 샘플은 SAMPLE- 접두어를 붙여두어 코드가 섞이지 않는다.
+    """
+    if df.empty or "parking_id" not in df.columns:
         return df.copy()
 
     work = df.copy()
-    work["_name_key"] = work["parking_name"].map(normalize_name)
+    work["_id_key"] = work["parking_id"].astype(str).str.strip()
     work["_priority"] = work.get("source", pd.Series("", index=work.index)).map(
         lambda s: SOURCE_PRIORITY.get(s, 99)
     )
     work["_completeness"] = _completeness(df)
+    work = work.sort_values(["_priority", "_completeness"], ascending=[True, False])
+
+    kept = []
+    for id_key, group in work.groupby("_id_key", sort=False):
+        if not id_key or id_key.lower() in ("nan", "none"):
+            kept.extend(row for _, row in group.iterrows())
+            continue
+        rows = [row for _, row in group.iterrows()]
+        kept.append(_coalesce(rows[0], rows[1:]))
+
+    result = pd.DataFrame(kept).drop(columns=["_id_key", "_priority", "_completeness"])
+    return result.reset_index(drop=True)
+
+
+def dedupe(df: pd.DataFrame, distance_m: int = DEFAULT_MERGE_DISTANCE_M) -> pd.DataFrame:
+    """주차장코드 -> 이름 정규화 + 좌표 근접 순으로 중복 주차장을 하나로 합친다."""
+    if df.empty:
+        return df.copy()
+
+    work = dedupe_by_id(df)
+    work["_name_key"] = work["parking_name"].map(normalize_name)
+    work["_priority"] = work.get("source", pd.Series("", index=work.index)).map(
+        lambda s: SOURCE_PRIORITY.get(s, 99)
+    )
+    work["_completeness"] = _completeness(work)
 
     # 우선순위 높고 정보 많은 행이 먼저 오도록 정렬 -> 각 클러스터의 첫 행이 대표가 된다
     work = work.sort_values(["_priority", "_completeness"], ascending=[True, False])
@@ -223,6 +254,21 @@ if __name__ == "__main__":
          "address": "서울특별시 마포구 망원동 457-31", "source": "standard"},
     ])
     assert len(merge_sources(no_coord)) == 2, "주소가 다르면 남고, 같으면 합쳐져야 함"
+
+    # 주차장코드가 같으면 이름/주소가 달라도 합쳐지고, 좌표 있는 소스가 대표가 된다
+    same_code = pd.DataFrame([
+        {"parking_id": "1208601", "parking_name": "청계2(북2) 공영주차장(시)",
+         "address": "종로구 관수동 91-4", "latitude": None, "longitude": None,
+         "capacity": 1, "source": "seoul_public"},
+        {"parking_id": "1208601", "parking_name": "청계2북2공영",
+         "address": "종로구 관수동 91", "latitude": 37.5689, "longitude": 126.9966,
+         "source": "seoul_site"},
+    ])
+    by_code = merge_sources(same_code)
+    assert len(by_code) == 1, "주차장코드가 같으면 1건으로 합쳐져야 함"
+    assert by_code.iloc[0]["source"] == "seoul_site", "좌표 있는 소스가 대표"
+    assert by_code.iloc[0]["capacity"] == 1, "다른 소스에만 있던 값이 채워져야 함"
+    assert pd.notna(by_code.iloc[0]["latitude"])
 
     public = pd.DataFrame([
         {"parking_id": "171721", "parking_name": "세종로 공영주차장(시)", "lot_category": "공영",

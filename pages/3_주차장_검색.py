@@ -35,6 +35,9 @@ hero("🅿️", "주차장 검색", "공영·민영 주차장을 한 번에 검�
 
 CATEGORY_COLOR = {"공영": "#2ec4b6", "민영": "#ff9f1c"}
 
+# 주차정보안내시스템 수집 범위(common/parking_data.SITE_DISTRICTS)와 맞춘 기본 자치구
+DEFAULT_DISTRICT = "종로구"
+
 # 반경 검색의 기준점으로 쓸 서울 주요 지점 (카카오 REST 키가 없어 주소 검색 대신 사용)
 LANDMARKS = {
     "광화문광장": (37.5720, 126.9769),
@@ -57,7 +60,14 @@ with st.sidebar:
     st.subheader("검색 조건", divider="gray")
 
     districts = sorted(d for d in all_lots["district"].dropna().unique() if d != "기타")
-    district = st.selectbox("자치구", ["서울 전체", *districts], key="district")
+    district_options = ["서울 전체", *districts]
+    district = st.selectbox(
+        "자치구",
+        district_options,
+        # 주차정보안내시스템 수집 범위를 종로구로 잡아둬서 기본값도 종로구로 맞춘다
+        index=district_options.index(DEFAULT_DISTRICT) if DEFAULT_DISTRICT in district_options else 0,
+        key="district",
+    )
 
     keyword = st.text_input(
         "주차장명 · 주소 키워드",
@@ -223,10 +233,15 @@ else:
         ),
         height=580,
     )
-    st.caption(
-        f"좌표 보유 {len(mappable):,}곳은 바로 표시되고, 나머지는 주소로 지오코딩해 "
-        "최대 80곳까지 추가로 표시됩니다."
-    )
+    missing_coord = len(ranked) - len(mappable)
+    if missing_coord:
+        st.caption(
+            f"좌표 보유 {len(mappable):,}곳은 바로 표시되고, 좌표가 없는 {missing_coord:,}곳은 "
+            "주소로 지오코딩해 최대 80곳까지 추가로 표시됩니다. "
+            "`collectors/seoul_parking_crawler.py`로 해당 자치구를 수집하면 좌표가 채워집니다."
+        )
+    else:
+        st.caption(f"검색 결과 {len(mappable):,}곳 모두 좌표를 갖고 있어 지도에 그대로 표시됩니다.")
 
 # ── 목록 ──────────────────────────────────────────────────────
 st.subheader("검색 결과", divider="gray")

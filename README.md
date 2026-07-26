@@ -10,7 +10,7 @@
 |---|---|---|
 | 치훈 | 서울시 불법주정차 단속 정보 (OA-22190) | `collectors/enforcement_history.py`, `pages/1_단속_다발구역.py` |
 | 종원 | 단속 CCTV 위치정보 (OA-20471) | `collectors/cctv_api.py`, `pages/2_CCTV_지도.py` |
-| 승희 | 공영주차장 안내 정보 + 민영·부설(표준데이터) + 실시간 주차 여유 | `collectors/public_parking_api.py`, `collectors/standard_parking_api.py`, `collectors/private_parking_crawler.py`, `collectors/realtime_parking_api.py`, `collectors/merge_parking.py`, `common/recommend.py`, `common/parking_data.py`, `pages/3_주차장_검색.py` |
+| 승희 | 주차정보안내시스템 크롤링(공영·민영, 좌표 100%) + 공영주차장 안내 정보 + 실시간 주차 여유 | `collectors/seoul_parking_crawler.py`, `collectors/public_parking_api.py`, `collectors/standard_parking_api.py`, `collectors/private_parking_crawler.py`, `collectors/realtime_parking_api.py`, `collectors/merge_parking.py`, `common/recommend.py`, `common/parking_data.py`, `pages/3_주차장_검색.py` |
 | 연주 또는 은미 | 크롤링 A (FAQ - 이용안내 계열) | `collectors/faq_crawler_a.py`, `pages/4_FAQ_이용안내.py` |
 | 연주 또는 은미 | 크롤링 B (FAQ - 단속·견인·이의신청 계열) | `collectors/faq_crawler_b.py`, `pages/5_FAQ_단속견인.py` |
 
@@ -41,6 +41,7 @@
 ├── collectors/                # 데이터 수집 스크립트 (담당자별)
 │   ├── enforcement_history.py     # 치훈 - 단속이력 CSV 정제 + 다발구역 집계
 │   ├── cctv_api.py                # 종원 - 서울 열린데이터광장 Open API
+│   ├── seoul_parking_crawler.py   # 승희 - 주차정보안내시스템 크롤링 (공영·민영, 좌표 100%) ★주력
 │   ├── public_parking_api.py      # 승희 - 공영주차장 (서울시 OA-13122 CSV)
 │   ├── standard_parking_api.py    # 승희 - 전국주차장정보표준데이터 (민영·부설, CSV/API)
 │   ├── private_parking_crawler.py # 승희 - 민영·부설만 추려 적재용 CSV 생성
@@ -202,13 +203,21 @@ DB나 카카오 키가 아직 없어도 모든 페이지는 샘플 데이터로 
 
 ### 주차장 검색 (승희) 파이프라인
 
-DB나 정제 CSV가 없어도 저장소의 `seoul_parking.csv`에서 즉석 정제해 페이지가 동작합니다.
+현재 검색 범위는 **종로구**입니다 (`common/parking_data.py`의 `SITE_DISTRICTS`).
+다른 구를 추가하려면 크롤러를 그 구로 한 번 돌려 `data/cleaned/site_parking.csv`를 다시 만들면 됩니다.
+
+```bash
+uv run python collectors/seoul_parking_crawler.py --district 종로구   # 232곳, 좌표 100%
+uv run python collectors/seoul_parking_crawler.py --district all      # 서울 25개구
+```
+
+DB나 정제 CSV가 없어도 저장소의 CSV로 페이지가 바로 동작합니다.
 아래는 정식으로 DB에 넣고 싶을 때의 순서입니다.
 
 ```bash
-uv run python collectors/public_parking_api.py                       # 공영 850곳
+uv run python collectors/public_parking_api.py                       # 공영 850곳 (보조)
 uv run python collectors/realtime_parking_api.py                     # 실시간 여유 122곳
-uv run python collectors/private_parking_crawler.py                  # 민영·부설 (표준데이터 CSV 필요)
+uv run python collectors/private_parking_crawler.py                  # 표준데이터 민영 (선택)
 uv run python loaders/load_to_db.py --csv data/cleaned/public_parking.csv  --table PUBLIC_PARKING_LOT  --if-exists truncate
 uv run python loaders/load_to_db.py --csv data/cleaned/private_parking.csv --table PRIVATE_PARKING_LOT --if-exists truncate
 ```
@@ -226,7 +235,8 @@ uv run python collectors/merge_parking.py  # 이름 정규화·중복 제거 테
 |---|---|---|
 | 서울시 불법주정차 단속 정보 (OA-22190) | CSV 다운로드 (분기별 12개) | 단속일시/단속주소/위도/경도 |
 | 서울시 단속 CCTV 위치정보 (OA-20471) | Open API (서울 열린데이터광장 키 필요) | 파일 다운로드 미제공 |
-| 서울시 공영주차장 안내 정보 (OA-13122) | CSV 다운로드 (`seoul_parking.csv`, EUC-KR) | 서울 전체 2,189행 → 좌표 병합 후 850곳. 좌표 보유는 117곳뿐이라 나머지는 지도에서 주소 지오코딩 |
+| **서울특별시 주차정보안내시스템** (parking.seoul.go.kr) | 내부 AJAX(`SearchParkingBy.do`) 크롤링 | **주력 소스.** 자치구 단위로 공영·민영·부설을 모두 주고 **좌표 100%**. 종로구 232곳 (공영 52 / 민영 180). 페이징 없음 |
+| 서울시 공영주차장 안내 정보 (OA-13122) | CSV 다운로드 (`seoul_parking.csv`, EUC-KR) | 서울 전체 2,189행 → 좌표 병합 후 850곳. **좌표가 117곳뿐**이라 단독으로는 지도가 비어서, 위 크롤링 데이터의 보조(일 최대요금·정기권 보완)로 사용 |
 | 서울시 실시간 주차정보 (OA-21709) | Open API (`SEOUL_OPENAPI_KEY`) | 시영주차장 122곳의 현재 주차대수 → 추천의 '여유 점수'에 사용 |
 | 전국주차장정보표준데이터 | CSV 다운로드 또는 API (`DATA_GO_KR_API_KEY`) | **민영·부설의 유일한 소스.** `data/raw/national_parking.csv`로 저장하면 자동 인식 |
 | 서울시설공단 공영주차장 FAQ (sisul.or.kr) | 정적 게시판 | requests+bs4로 크롤링 확인됨 |
