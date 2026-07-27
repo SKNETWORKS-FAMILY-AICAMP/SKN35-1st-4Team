@@ -292,6 +292,20 @@ def build_map_html(
             {legend_html}
             <div id="map"></div>
         </div>
+        <script>
+            // 이 HTML은 srcdoc iframe 안에서 돌아 location.protocol 이 'about:' 이다.
+            // 카카오 SDK 로더는 그 값으로 https 여부를 판단해 실패하면 내부 번들
+            // (t1.daumcdn.net)을 http:// 로 document.write 하는데, https 로 배포된
+            // 페이지에서는 Mixed Content 로 차단되어 kakao.maps 가 텅 빈다.
+            // (로컬 http 에서는 http→http 라 걸리지 않아 배포에서만 터진다)
+            // 로더가 쓰는 document.write 를 잠깐 가로채 http:// 를 https:// 로 바꾼다.
+            (function () {{
+                var write = document.write.bind(document);
+                document.write = function (html) {{
+                    write(String(html).replace(/http:\\/\\//g, 'https://'));
+                }};
+            }})();
+        </script>
         <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={app_key}"></script>
         <script>
             // SDK가 안 붙으면(키 오류/도메인 미등록) 지도가 그냥 빈 화면이 되어 원인을 알 수 없다.
