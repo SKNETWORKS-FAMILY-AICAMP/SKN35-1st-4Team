@@ -2,24 +2,31 @@ import os
 import pandas as pd
 import streamlit as st
 
-# 1. 페이지 기본 설정
-st.set_page_config(page_title="민원 게시판", layout="wide")
+import config
+from common.db import read_sql
+from common.ui import apply_style, hero
 
-# 리얼 게시판 스타일 CSS
+# 1. 페이지 기본 설정 및 프로젝트 공통 스타일 적용
+st.set_page_config(page_title="민원 게시판", page_icon="🙋‍♂️", layout="wide")
+apply_style()
+
+# 2. 상단 히어로 헤더 (타이틀: 민원 게시판 / 추천 서브 텍스트 반영)
+hero("🙋‍♂️", "민원 게시판", "종로구 공개 상담민원 데이터를 한눈에 조회하고 검색해 보세요.")
+
+# 테이블 레이아웃 및 스타일 커스텀 CSS
 st.markdown("""
     <style>
     div[data-baseweb="input"] {
         border-radius: 6px !important;
     }
-
     .board-header {
-        font-size: 17px !important;
+        font-size: 16px !important;
         font-weight: 700 !important;
         color: #0F172A !important;
         padding: 8px 0 !important;
         text-align: left !important;
     }
-    
+    /* 제목 버튼 스타일 (파란색 박스/색상 제거 및 깔끔한 기본 텍스트 유지) */
     div[data-testid="stColumn"] button[kind="tertiary"] {
         text-align: left !important;
         justify-content: flex-start !important;
@@ -29,13 +36,19 @@ st.markdown("""
         font-weight: 500 !important;
         color: #0F172A !important;
         line-height: 1.4 !important;
-    }
-    div[data-testid="stColumn"] button[kind="tertiary"]:hover {
-        color: #2563EB !important;
-        text-decoration: underline !important;
+        border: none !important;
+        box-shadow: none !important;
         background-color: transparent !important;
     }
-    
+    div[data-testid="stColumn"] button[kind="tertiary"]:hover,
+    div[data-testid="stColumn"] button[kind="tertiary"]:focus,
+    div[data-testid="stColumn"] button[kind="tertiary"]:active {
+        color: #0F172A !important;
+        text-decoration: underline !important;
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
     .row-divider {
         border: none;
         border-top: 1px solid #E2E8F0;
@@ -44,29 +57,37 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("민원 게시판")
-st.caption("종로구 공개 상담민원 수집 데이터입니다.")
-
-# 2. 데이터 불러오기
-csv_path = "minwon_faq2_result.csv"
-
-if not os.path.exists(csv_path):
-    st.error("`minwon_faq2_result.csv` 파일을 찾을 수 없습니다. 크롤러를 먼저 실행해 주세요.")
-else:
-    df = pd.read_csv(csv_path)
-
-    st.markdown("---")
-
-    # 검색 및 전체 개수 표시
-    col_search, col_space, col_count = st.columns([4, 1, 2])
+# 3. 데이터 로딩 함수 (DB 및 data/cleaned CSV 로드)
+@st.cache_data(ttl=600)
+def load_faq_data() -> pd.DataFrame:
+    if config.is_db_configured():
+        try:
+            query = "SELECT faq2_id, q_title, q_writer, q_date, question, a_depart, a_date, answer FROM FAQ"
+            return read_sql(query)
+        except Exception:
+            pass
+            
+    csv_path = os.path.join("data", "cleaned", "complain_faq2_result.csv")
+    if os.path.exists(csv_path):
+        return pd.read_csv(csv_path)
     
+    return pd.DataFrame(columns=['faq2_id', 'q_title', 'q_writer', 'q_date', 'question', 'a_depart', 'a_date', 'answer'])
+
+
+# 4. 메인 민원 게시판 화면
+df = load_faq_data()
+
+if df.empty:
+    st.warning("⚠️ 수집된 데이터가 없습니다. `collectors/faq_crawler_b.py`를 실행하여 데이터를 수집해 주세요.")
+else:
+    # 검색창 및 건수 표시
+    col_search, col_space, col_count = st.columns([4, 1, 2])
     with col_search:
         search_keyword = st.text_input("검색", value="", placeholder="🔍 제목 또는 질문 내용을 검색해보세요...", label_visibility="collapsed")
-    
     with col_count:
         st.markdown(f"<div style='text-align: right; padding-top: 8px; font-size: 15px; color: #475569;'>총 <b>{len(df)}</b>건의 민원</div>", unsafe_allow_html=True)
 
-    # 검색 필터링
+    # 검색어 필터링
     if search_keyword:
         filtered_df = df[
             df['q_title'].astype(str).str.contains(search_keyword, case=False, na=False) |
@@ -75,7 +96,7 @@ else:
     else:
         filtered_df = df.reset_index(drop=True)
 
-    # 3. 페이지네이션 (10개씩)
+    # 페이지네이션 (10개씩)
     ITEMS_PER_PAGE = 10
     total_items = len(filtered_df)
     total_pages = max(1, (total_items + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
@@ -94,7 +115,7 @@ else:
     end_idx = min(start_idx + ITEMS_PER_PAGE, total_items)
     page_df = filtered_df.iloc[start_idx:end_idx]
 
-    # 4. 상세 모달 Dialog (원문 링크 완전히 제거됨)
+    # 상세 보기 Dialog
     @st.dialog("민원 상세 보기", width="large")
     def show_detail_dialog(row):
         col_t, col_d = st.columns([3, 1])
@@ -115,7 +136,7 @@ else:
         st.markdown(f"**담당부서**: {row['a_depart']} | **답변일자**: {row['a_date']}")
         st.success(row['answer'] if pd.notna(row['answer']) and row['answer'] != "" else "답변 내용이 없습니다.")
 
-    # 5. 게시판 목록 출력
+    # 테이블 헤더 및 목록 출력
     if total_items == 0:
         st.info("검색 결과가 없습니다.")
     else:
@@ -143,7 +164,7 @@ else:
 
             st.markdown("<hr class='row-divider' />", unsafe_allow_html=True)
 
-        # 6. 하단 페이지네이션 UI
+        # 페이지네이션 UI
         st.write("")
         p_col1, p_col2, p_col3, p_col4, p_col5 = st.columns([1, 1, 2, 1, 1])
 

@@ -235,7 +235,10 @@ df.drop(columns=['q_date_dt'], inplace=True)
 df.insert(0, 'faq2_id', range(1, len(df) + 1))
 
 # 5. CSV 저장
-csv_filename = 'minwon_faq2_result.csv'
+output_dir = os.path.join('data', 'cleaned')
+os.makedirs(output_dir, exist_ok=True)
+
+csv_filename = os.path.join(output_dir, 'complain_faq2_result.csv')
 df.to_csv(csv_filename, index=False, encoding='utf-8-sig')
 
 print(f"\n2016년 1월 1일 이후 데이터 크롤링이 완료되었습니다!")
