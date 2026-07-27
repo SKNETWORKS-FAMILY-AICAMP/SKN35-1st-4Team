@@ -107,16 +107,18 @@ def settings_report() -> list[dict]:
     except Exception:  # noqa: BLE001
         secret_names = set()
 
+    # Secrets 를 먼저 본다. 스트림릿은 secrets 를 환경변수로도 넣어주기 때문에,
+    # 환경변수부터 확인하면 secrets 로 들어온 값까지 '환경변수'로 잘못 표시된다.
     report = []
     for label, names in checks:
         source = "없음"
         for name in names:
+            if name in secret_names:
+                source = "Secrets"
+                break
             value = os.getenv(name)
             if value and not _is_placeholder(value):
-                source = f"환경변수 {name}"
-                break
-            if name in secret_names:
-                source = f"Secrets {name}"
+                source = ".env / 환경변수"
                 break
         report.append({"항목": label, "출처": source, "설정됨": source != "없음"})
     return report
