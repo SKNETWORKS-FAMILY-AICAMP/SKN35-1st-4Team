@@ -270,6 +270,15 @@ with st.sidebar:
     show_area = "단속 다발구역" in active_layers
     show_logs = "내 주차 기록" in active_layers
 
+    # DB가 안 붙으면 주차장(CSV 폴백)만 뜨고 단속·CCTV 레이어가 통째로 사라진다.
+    # 화면만 봐서는 "데이터가 원래 없나" 싶으니 원인을 분명히 알려준다.
+    if not config.is_db_configured():
+        st.warning(
+            "DB에 연결되지 않아 **단속 다발구역·CCTV**를 불러오지 못했습니다. "
+            "배포 환경이라면 **Manage app → Settings → Secrets** 에 `DB_*` 값을 넣어주세요.",
+            icon=":material/database_off:",
+        )
+
     if user is None:
         st.caption("로그인하면 내 주차 기록도 지도에 표시됩니다.")
 
@@ -837,7 +846,13 @@ with map_slot:
         selected_place = (float(chosen["lat"]), float(chosen["lng"]), str(chosen["name"]))
 
     if not config.KAKAO_JS_KEY:
-        st.warning("`.env`의 KAKAO_JS_KEY가 없어 지도를 표시할 수 없습니다.")
+        # 배포판에는 .env 가 없다. 어디에 넣어야 하는지를 환경에 맞게 알려준다.
+        st.warning(
+            "KAKAO_JS_KEY가 없어 지도를 표시할 수 없습니다. "
+            "배포 환경이라면 **Manage app → Settings → Secrets** 에, "
+            "로컬이라면 `.env` 에 넣어주세요.",
+            icon=":material/map:",
+        )
     elif mappable.empty and not area_blobs:
         st.info("표시할 레이어가 없습니다. 사이드바에서 레이어를 켜주세요.")
     else:
