@@ -1,4 +1,10 @@
 import os
+import sys
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BASE_DIR not in sys.path :
+    sys.path.append(BASE_DIR)
+
 import pandas as pd
 import streamlit as st
 
@@ -57,21 +63,50 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 3. 데이터 로딩 함수 (DB 및 data/cleaned CSV 로드)
+# # 3. 데이터 로딩 함수 (DB 및 data/cleaned CSV 로드)
+# @st.cache_data(ttl=600)
+# def load_faq_data() -> pd.DataFrame:
+#     if config.is_db_configured():
+#         try:
+#             query = "SELECT faq2_id, q_title, q_writer, q_date, question, a_depart, a_date, answer FROM FAQ"
+#             return read_sql(query)
+#         except Exception:
+#             pass
+            
+#     csv_path = os.path.join("data", "cleaned", "complain_faq2_result.csv")
+#     if os.path.exists(csv_path):
+#         return pd.read_csv(csv_path)
+    
+#     return pd.DataFrame(columns=['faq2_id', 'q_title', 'q_writer', 'q_date', 'question', 'a_depart', 'a_date', 'answer'])
+
+
+
+
+# cloud에서 읽어오는 버전으로 수정
+
+# 3. 데이터 로딩 함수 (TiDB Cloud 데이터베이스에서 직접 연동)
+# 3. 데이터 로딩 함수 (TiDB Cloud 데이터베이스에서 직접 연동)
 @st.cache_data(ttl=600)
 def load_faq_data() -> pd.DataFrame:
-    if config.is_db_configured():
-        try:
-            query = "SELECT faq2_id, q_title, q_writer, q_date, question, a_depart, a_date, answer FROM FAQ"
-            return read_sql(query)
-        except Exception:
-            pass
-            
-    csv_path = os.path.join("data", "cleaned", "complain_faq2_result.csv")
-    if os.path.exists(csv_path):
-        return pd.read_csv(csv_path)
+    query = """
+        SELECT 
+            faq2_id, 
+            q_title, 
+            q_writer, 
+            q_date, 
+            question, 
+            a_depart, 
+            a_date, 
+            answer 
+        FROM complain
+        ORDER BY faq2_id DESC
+    """
+    try:
+        return read_sql(query)
+    except Exception as e:
+        st.error(f"❌ TiDB Cloud 데이터베이스 연동 오류: {e}")
+        return pd.DataFrame(columns=['faq2_id', 'q_title', 'q_writer', 'q_date', 'question', 'a_depart', 'a_date', 'answer'])
     
-    return pd.DataFrame(columns=['faq2_id', 'q_title', 'q_writer', 'q_date', 'question', 'a_depart', 'a_date', 'answer'])
 
 
 # 4. 메인 민원 게시판 화면
