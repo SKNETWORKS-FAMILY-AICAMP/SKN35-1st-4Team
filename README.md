@@ -10,7 +10,7 @@
 |---|---|---|
 | 치훈 | 서울시 불법주정차 단속 정보 (OA-22190) | `collectors/enforcement_history.py`, `pages/1_단속_다발구역.py` |
 | 종원 | 단속 CCTV 위치정보 (OA-20471) | `collectors/cctv_api.py`, `pages/2_CCTV_지도.py` |
-| 승희 | 주차정보안내시스템 크롤링 (공영·민영, 좌표 100%) + 실시간 주차 여유 + 로그인·주차기록 | `collectors/seoul_parking.py`, `common/parking_data.py`, `common/recommend.py`, `common/auth.py`, `common/parking_log.py`, `pages/3_주차장_검색.py`, `pages/6_로그인_회원가입.py`, `pages/7_마이페이지.py` |
+| 승희 | 데이터 통합 첫 화면(주차장+단속 다발구역+CCTV), 단속 위험 판정, 로그인·주차기록 | `main.py`, `collectors/seoul_parking.py`, `common/parking_data.py`, `common/recommend.py`, `common/risk_data.py`, `common/geolocation.py`, `common/auth.py`, `common/parking_log.py`, `pages/6_로그인_회원가입.py`, `pages/7_마이페이지.py` |
 | 연주 또는 은미 | 크롤링 A (FAQ - 이용안내 계열) | `collectors/faq_crawler_a.py`, `pages/4_FAQ_이용안내.py` |
 | 연주 또는 은미 | 크롤링 B (FAQ - 단속·견인·이의신청 계열) | `collectors/faq_crawler_b.py`, `pages/5_FAQ_단속견인.py` |
 
@@ -18,7 +18,7 @@
 
 ```
 .
-├── main.py                    # Streamlit 진입점 (uv run streamlit run main.py)
+├── main.py                    # 승희 - 첫 화면: 통합 지도 + 내 위치 단속 위험 판정
 ├── config.py                  # .env 로더 (MySQL 접속정보, 카카오/공공데이터 키)
 ├── pyproject.toml / uv.lock   # uv 의존성
 ├── .env.example               # 환경변수 템플릿 (실제 .env는 git 제외)
@@ -26,7 +26,6 @@
 ├── pages/                     # Streamlit 멀티페이지 (사이드바에 자동 표시)
 │   ├── 1_단속_다발구역.py      # 치훈
 │   ├── 2_CCTV_지도.py          # 종원
-│   ├── 3_주차장_검색.py        # 승희
 │   ├── 4_FAQ_이용안내.py       # 연주 또는 은미  ┐ 추후 한 페이지로
 │   ├── 5_FAQ_단속견인.py       # 연주 또는 은미  ┘ 통합 예정
 │   ├── 6_로그인_회원가입.py     # 승희
@@ -37,6 +36,8 @@
 │   ├── kakao_map.py           # 카카오맵 HTML 빌더 (커스텀 마커/말풍선/범례/지오코딩)
 │   ├── geo.py                 # 거리 계산 (지오코딩 함수 포함 - REST 키 발급 시 사용)
 │   ├── auth.py                # 승희 - 회원가입·로그인 (pbkdf2 해싱, MySQL/SQLite 자동 전환)
+│   ├── risk_data.py           # 승희 - 단속 다발구역·CCTV 로더 + 위험도 판정
+│   ├── geolocation.py         # 승희 - 브라우저 현재 위치 (st.components.v2)
 │   ├── parking_log.py         # 승희 - 주차 기록 저장·조회·요약
 │   ├── recommend.py           # 승희 - 예상요금·운영여부·추천 점수 (순수 함수, 자체 테스트 포함)
 │   ├── parking_data.py        # 승희 - 주차장 데이터 로더 (DB -> CSV -> 즉석 수집 폴백)

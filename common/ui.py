@@ -29,6 +29,14 @@ _GLOBAL_CSS = f"""
         font-family: 'Pretendard', -apple-system, 'Malgun Gothic', sans-serif;
     }}
 
+    /* Material Symbols 아이콘은 위 폰트 규칙에서 제외한다.
+       (제외하지 않으면 :material/xxx: 아이콘이 'settings' 같은 글자로 보인다)
+       아이콘 종류마다 testid가 달라서(stExpanderIcon, stTooltipIcon …) 접미사로 함께 잡는다. */
+    [data-testid="stIconMaterial"],
+    [data-testid$="Icon"] {{
+        font-family: 'Material Symbols Rounded' !important;
+    }}
+
     /* 사이드바 */
     [data-testid="stSidebar"] {{
         background: linear-gradient(180deg, #f8f9ff 0%, #eef1fb 100%);
