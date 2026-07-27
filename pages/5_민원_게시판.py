@@ -58,27 +58,50 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # 3. 데이터 로딩 함수 (DB 및 data/cleaned CSV 로드)
+COLUMNS = [
+    "faq2_id", "q_title", "q_writer", "q_date",
+    "question", "a_depart", "a_date", "answer",
+]
+
+
 @st.cache_data(ttl=600)
 def load_faq_data() -> pd.DataFrame:
+    """민원 목록. DB를 설정했으면 DB에서만 읽는다.
+
+    - 민원 데이터가 들어있는 테이블은 FAQ 가 아니라 FAQ2 다.
+      예전에는 FROM FAQ 로 되어 있어 쿼리가 매번 실패했고, 그 예외를
+      조용히 삼키고 CSV를 읽어서 "DB를 쓰는 것처럼 보이지만 실은 CSV"인
+      상태였다.
+    - DB 설정이 있는데 실패하면 CSV로 숨기지 않고 그대로 알린다.
+      CSV 폴백은 .env 가 없는 로컬 개발용으로만 남겨둔다.
+    """
     if config.is_db_configured():
-        try:
-            query = "SELECT faq2_id, q_title, q_writer, q_date, question, a_depart, a_date, answer FROM FAQ"
-            return read_sql(query)
-        except Exception:
-            pass
-            
+        return read_sql(f"SELECT {', '.join(COLUMNS)} FROM FAQ2")
+
     csv_path = os.path.join("data", "cleaned", "complain_faq2_result.csv")
     if os.path.exists(csv_path):
         return pd.read_csv(csv_path)
-    
-    return pd.DataFrame(columns=['faq2_id', 'q_title', 'q_writer', 'q_date', 'question', 'a_depart', 'a_date', 'answer'])
+
+    return pd.DataFrame(columns=COLUMNS)
 
 
 # 4. 메인 민원 게시판 화면
-df = load_faq_data()
+try:
+    df = load_faq_data()
+except Exception as exc:  # noqa: BLE001 - 접속/적재 문제를 화면에 그대로 알린다
+    st.error(
+        f"DB에서 민원 데이터를 읽지 못했습니다 ({type(exc).__name__}). "
+        "테이블이 비었으면 `uv run python loaders/load_all.py --only FAQ2`, "
+        "접속이 문제면 .env의 DB_* 값을 확인하세요.",
+        icon=":material/database_off:",
+    )
+    st.stop()
 
 if df.empty:
-    st.warning("⚠️ 수집된 데이터가 없습니다. `collectors/faq_crawler_b.py`를 실행하여 데이터를 수집해 주세요.")
+    st.warning(
+        "⚠️ 민원 데이터가 없습니다. "
+        "`uv run python loaders/load_all.py --only FAQ2` 로 적재해 주세요."
+    )
 else:
     # 검색창 및 건수 표시
     col_search, col_space, col_count = st.columns([4, 1, 2])

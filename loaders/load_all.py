@@ -31,6 +31,8 @@ from loaders.load_to_db import load_csv  # noqa: E402
 TARGETS: list[tuple[str, Path, str]] = [
     ("PARKING_LOT", ROOT / "data/cleaned/parking_lot.csv", "주차장"),
     ("CCTV_INFO", ROOT / "data/cleaned/cctv_cleaned.csv", "단속 CCTV"),
+    ("FAQ", ROOT / "data/cleaned/FAQ_sample_.csv", "FAQ"),
+    ("FAQ2", ROOT / "data/cleaned/complain_faq2_result.csv", "민원 게시판"),
     (
         "ENFORCEMENT_HISTORY",
         ROOT / "data/cleaned/종로구_단속정보_통합_데이터.csv",

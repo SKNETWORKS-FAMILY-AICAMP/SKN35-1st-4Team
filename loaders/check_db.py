@@ -32,6 +32,10 @@ EXPECTED = [
     "PARKING_LOG",
 ]
 
+# CSV로 적재하는 게 아니라 사용자가 앱에서 만드는 테이블.
+# 비어 있어도 "적재하세요" 라고 안내하면 안 된다.
+USER_GENERATED = {"USERS", "PARKING_LOG"}
+
 
 def main() -> None:
     print("접속 정보")
@@ -68,7 +72,13 @@ def main() -> None:
                 continue
             rows = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()  # noqa: S608
             mark = "○" if rows == 0 else "✓"
-            note = "  (비어 있음 — loaders/load_to_db.py 로 적재)" if rows == 0 else ""
+            note = ""
+            if rows == 0:
+                note = (
+                    "  (비어 있음 — 앱에서 가입/등록하면 쌓임)"
+                    if table in USER_GENERATED
+                    else "  (비어 있음 — loaders/load_all.py 로 적재)"
+                )
             print(f"  {mark} {table:22s} {rows:>9,}행{note}")
 
     extra = existing - set(EXPECTED)

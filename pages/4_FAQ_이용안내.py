@@ -1,12 +1,13 @@
 """
-[담당: 연주 또는 은미] FAQ - 공영주차장 이용안내 페이지 (크롤링 A).
+[담당: 연주 또는 은미] FAQ 페이지.
 
-데이터 소스: 서울시설공단 공영주차장 FAQ (sisul.or.kr, 정적 게시판)
-    -> collectors/faq_crawler_a.py 로 수집, FAQ 테이블에 적재
-    -> category: 이용안내 / 결제오류 / 정기권 / 요금감면
+데이터 소스: FAQ 테이블 (data/cleaned/FAQ_sample_.csv 를 loaders 로 적재)
+    적재:  uv run python loaders/load_all.py --only FAQ
 
-⚠ 통합 계획: 이 페이지와 "FAQ - 단속·견인·이의신청"(연주)은 같은 FAQ 테이블을
-쓰기 때문에, 나중에 category 필터만 합치면 한 페이지로 통합할 수 있다.
+카테고리는 코드에 박아두지 않고 DB에 실제로 들어있는 값을 읽어서 쓴다.
+예전에는 ["이용안내","결제오류","정기권","요금감면"] 로 고정돼 있었는데,
+적재된 데이터의 카테고리가 바뀌면 필터에 걸리는 게 하나도 없어서
+"검색 결과 없음"만 나왔다. 데이터가 바뀌어도 화면이 따라가도록 바꿨다.
 """
 
 import pandas as pd
@@ -18,10 +19,10 @@ from common.ui import apply_style, hero
 
 st.set_page_config(page_title="FAQ - 이용안내", page_icon="💬", layout="wide")
 apply_style()
-hero("💬", "FAQ - 공영주차장 이용안내", "정기권, 요금감면, 결제 문제 등 이용 관련 궁금증을 검색하세요. (담당: 연주 또는 은미)")
+hero("💬", "FAQ - 주정차 이용안내", "단속 기준, 과태료, 이의신청 등 궁금한 내용을 검색하세요. (담당: 연주 또는 은미)")
 
-# 이 페이지가 담당하는 카테고리 (크롤링 A 수집분)
-MY_CATEGORIES = ["이용안내", "결제오류", "정기권", "요금감면"]
+# DB가 없을 때 쓰는 샘플의 카테고리
+SAMPLE_CATEGORIES = ["이용안내", "결제오류", "정기권", "요금감면"]
 
 SAMPLE_FAQ = pd.DataFrame(
     [
@@ -48,6 +49,13 @@ SAMPLE_FAQ = pd.DataFrame(
 
 
 @st.cache_data(ttl=600)
+def load_categories() -> list[str]:
+    """DB에 실제로 들어있는 카테고리 목록."""
+    df = read_sql("SELECT DISTINCT category FROM FAQ WHERE category IS NOT NULL ORDER BY category")
+    return df["category"].tolist()
+
+
+@st.cache_data(ttl=600)
 def load_faq(keyword: str, category: str) -> pd.DataFrame:
     like = f"%{keyword}%"
     if category != "전체":
@@ -56,20 +64,26 @@ def load_faq(keyword: str, category: str) -> pd.DataFrame:
             "WHERE category = :cat AND (question LIKE :kw OR answer LIKE :kw)",
             {"cat": category, "kw": like},
         )
-    # 이 페이지 담당 카테고리만
-    placeholders = ", ".join(f"'{c}'" for c in MY_CATEGORIES)
     return read_sql(
-        f"SELECT category, question, answer, source FROM FAQ "
-        f"WHERE category IN ({placeholders}) AND (question LIKE :kw OR answer LIKE :kw)",
+        "SELECT category, question, answer, source FROM FAQ "
+        "WHERE question LIKE :kw OR answer LIKE :kw",
         {"kw": like},
     )
 
 
+if config.is_db_configured():
+    try:
+        categories = load_categories()
+    except Exception:  # noqa: BLE001 - DB가 죽어도 검색창은 그려준다
+        categories = SAMPLE_CATEGORIES
+else:
+    categories = SAMPLE_CATEGORIES
+
 col_kw, col_cat = st.columns([3, 1])
 with col_kw:
-    keyword = st.text_input("🔎 키워드로 검색 (예: 정기권, 환불, 감면)")
+    keyword = st.text_input("🔎 키워드로 검색 (예: 과태료, 견인, 이의신청)")
 with col_cat:
-    category = st.selectbox("카테고리", ["전체"] + MY_CATEGORIES)
+    category = st.selectbox("카테고리", ["전체"] + categories)
 
 
 def _filter_sample(df: pd.DataFrame) -> pd.DataFrame:
@@ -92,7 +106,10 @@ else:
         result = _filter_sample(SAMPLE_FAQ)
 
 if result.empty:
-    st.warning("검색 결과가 없습니다. collectors/faq_crawler_a.py로 수집 후 적재했는지 확인해주세요.")
+    st.warning(
+        "검색 결과가 없습니다. "
+        "FAQ 데이터를 적재하려면 `uv run python loaders/load_all.py --only FAQ` 를 실행하세요."
+    )
 else:
     st.caption(f"총 {len(result)}건")
     for _, row in result.iterrows():
@@ -101,4 +118,4 @@ else:
             st.caption(f"📎 출처: {row['source']}")
 
 st.divider()
-st.caption("🔀 단속·견인·이의신청 관련 질문은 사이드바의 'FAQ 단속견인' 페이지(담당: 연주)를 확인하세요. 추후 한 페이지로 통합 예정입니다.")
+st.caption("🔀 개별 민원 사례는 사이드바의 '민원 게시판' 페이지에서 확인하세요.")
