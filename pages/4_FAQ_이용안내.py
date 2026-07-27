@@ -1,104 +1,138 @@
-"""
-[담당: 연주 또는 은미] FAQ - 공영주차장 이용안내 페이지 (크롤링 A).
-
-데이터 소스: 서울시설공단 공영주차장 FAQ (sisul.or.kr, 정적 게시판)
-    -> collectors/faq_crawler_a.py 로 수집, FAQ 테이블에 적재
-    -> category: 이용안내 / 결제오류 / 정기권 / 요금감면
-
-⚠ 통합 계획: 이 페이지와 "FAQ - 단속·견인·이의신청"(연주)은 같은 FAQ 테이블을
-쓰기 때문에, 나중에 category 필터만 합치면 한 페이지로 통합할 수 있다.
-"""
-
+import os
 import pandas as pd
 import streamlit as st
 
-import config
-from common.db import read_sql
-from common.ui import apply_style, hero
+# 페이지 기본 설정
+st.set_page_config(
+    page_title="FAQ 대시보드", page_icon="💡", layout="wide"
+)
 
-st.set_page_config(page_title="FAQ - 이용안내", page_icon="💬", layout="wide")
-apply_style()
-hero("💬", "FAQ - 공영주차장 이용안내", "정기권, 요금감면, 결제 문제 등 이용 관련 궁금증을 검색하세요. (담당: 연주 또는 은미)")
-
-# 이 페이지가 담당하는 카테고리 (크롤링 A 수집분)
-MY_CATEGORIES = ["이용안내", "결제오류", "정기권", "요금감면"]
-
-SAMPLE_FAQ = pd.DataFrame(
-    [
-        {
-            "category": "정기권",
-            "question": "정기권 이용자인데 14일마다 출차를 해야 하는 이유가 궁금합니다.",
-            "answer": "공영주차장 차고지화 방지를 위해 장기 주차(14일 이상) 차량을 대상으로 출차를 유도하고 있습니다.",
-            "source": "서울시설공단 공영주차장 FAQ (sisul.or.kr)",
-        },
-        {
-            "category": "요금감면",
-            "question": "주차요금을 감면받을 수 있는 대상은 누구인가요?",
-            "answer": "장애인·국가유공상이자 등 80%, 경차/저공해 50%, 다둥이행복카드(2자녀 이상) 50% 등 조례 기준으로 감면됩니다.",
-            "source": "서울시설공단 공영주차장 FAQ (sisul.or.kr)",
-        },
-        {
-            "category": "결제오류",
-            "question": "정기권을 취소하고 환불받을 수 있나요?",
-            "answer": "이용개시 전이라면 결제수단별 기한 내 직접 취소 가능하며, 기한이 지나면 홈페이지에서 환불신청서를 접수해야 합니다.",
-            "source": "서울시설공단 공영주차장 FAQ (sisul.or.kr)",
-        },
-    ]
+# --- [UI/UX 디자인 개선] 커스텀 CSS 적용 ---
+st.markdown(
+    """
+    <style>
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    
+    /* 상단 통계(Metric) 카드 스타일링 */
+    div[data-testid="stMetric"] {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        padding: 15px 20px;
+        border-radius: 12px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+    
+    /* 아코디언 타이틀 폰트 강조 */
+    details summary p {
+        font-weight: 600;
+        font-size: 1.05rem;
+    }
+    </style>
+""",
+    unsafe_allow_html=True,
 )
 
 
-@st.cache_data(ttl=600)
-def load_faq(keyword: str, category: str) -> pd.DataFrame:
-    like = f"%{keyword}%"
-    if category != "전체":
-        return read_sql(
-            "SELECT category, question, answer, source FROM FAQ "
-            "WHERE category = :cat AND (question LIKE :kw OR answer LIKE :kw)",
-            {"cat": category, "kw": like},
+# 데이터 로드 함수 (절대 경로 적용)
+@st.cache_data
+def load_data():
+  # 현재 파일(4_FAQ_이용안내.py)의 위치를 기준으로 프로젝트 루트 경로를 찾아냄
+  current_dir = os.path.dirname(os.path.abspath(__file__))
+  # 루트 폴더 안의 data/cleaned/FAQ_sample_.csv 경로 조합
+  file_path = os.path.join(current_dir, "..", "data", "cleaned", "FAQ_sample_.csv")
+
+  df = pd.read_csv(file_path)
+  return df
+
+
+df = load_data()
+
+
+# 💡 카테고리별 맞춤 아이콘(이모지) 매칭 함수
+def get_category_icon(category_name):
+  icon_map = {
+      "견인": "🚗",
+      "과태료 납부": "💳",
+      "금지구역": "🚫",
+      "다발구역": "📍",
+      "단속기준": "📏",
+      "단속완화": "🛡️",
+      "서비스 이용": "⚙️",
+      "의견 진술": "🗣️",
+      "이의신청": "📝",
+  }
+  # 등록되지 않은 카테고리의 경우 기본 폴더 아이콘 반환
+  return icon_map.get(category_name, "📁")
+
+
+# 메인 타이틀 (아이콘 추가)
+st.title("💡 자주 묻는 질문(FAQ) 센터")
+st.markdown(
+    "궁금한 사항을 카테고리별로 확인하거나 통합 검색을 통해 빠르게 찾아보세요."
+)
+
+# --- 사이드바 필터 구성 ---
+st.sidebar.header("🔍 검색 및 필터")
+st.sidebar.markdown("원하시는 정보를 빠르게 찾아보세요.")
+
+# 검색어 입력
+search_query = st.sidebar.text_input("질문/답변 검색", "", placeholder="키워드를 입력하세요")
+
+# 카테고리 선택 필터
+categories = ["전체"] + list(df["category"].unique())
+selected_category = st.sidebar.selectbox("카테고리 선택", categories)
+
+# --- 데이터 필터링 로직 ---
+filtered_df = df.copy()
+
+# 카테고리 필터 적용
+if selected_category != "전체":
+  filtered_df = filtered_df[filtered_df["category"] == selected_category]
+
+# 검색어 필터 적용 (질문 또는 답변에 검색어가 포함된 경우)
+if search_query:
+  filtered_df = filtered_df[
+      filtered_df["question"].str.contains(search_query, case=False, na=False)
+      | filtered_df["answer"].str.contains(search_query, case=False, na=False)
+  ]
+
+# --- 상단 메트릭 요약 (아이콘 적용) ---
+col1, col2, col3 = st.columns(3)
+with col1:
+  st.metric("📊 전체 FAQ 항목", f"{len(df)}개")
+with col2:
+  st.metric("🎯 선택된 카테고리 항목", f"{len(filtered_df)}개")
+with col3:
+  st.metric("🏷️ 등록된 카테고리 수", f"{df['category'].nunique()}개")
+
+st.markdown("---")
+
+# --- 메인 콘텐츠 영역 ---
+if filtered_df.empty:
+  st.warning("🔍 검색 결과가 없습니다. 다른 검색어나 카테고리를 입력해 보세요.")
+else:
+  # 카테고리명을 누르면 열리는 아코디언 형태 구현
+  for category, group in filtered_df.groupby("category"):
+    # 카테고리별 맞춤 아이콘 가져오기
+    icon = get_category_icon(category)
+
+    # 카테고리 이름을 가진 아코디언 생성 (이모지 및 건수 포함)
+    with st.expander(
+        f"{icon}  **{category}**  —  총 {len(group)}개의 질문", expanded=True
+    ):
+      st.markdown("")
+
+      # 해당 카테고리 안에 속한 QnA 목록 출력
+      for _, row in group.iterrows():
+        st.markdown(f"**Q. {row['question']}**")
+        # 답변 영역을 인포박스로 감싸 가독성 및 글씨체 구분 극대화
+        st.info(f"**A:** {row['answer']}")
+        st.caption(
+            f"📌 관련 기관/출처: {row['source_org']}  |  문서 ID: {row['faq_id']}"
         )
-    # 이 페이지 담당 카테고리만
-    placeholders = ", ".join(f"'{c}'" for c in MY_CATEGORIES)
-    return read_sql(
-        f"SELECT category, question, answer, source FROM FAQ "
-        f"WHERE category IN ({placeholders}) AND (question LIKE :kw OR answer LIKE :kw)",
-        {"kw": like},
-    )
+        st.markdown("")
 
-
-col_kw, col_cat = st.columns([3, 1])
-with col_kw:
-    keyword = st.text_input("🔎 키워드로 검색 (예: 정기권, 환불, 감면)")
-with col_cat:
-    category = st.selectbox("카테고리", ["전체"] + MY_CATEGORIES)
-
-
-def _filter_sample(df: pd.DataFrame) -> pd.DataFrame:
-    out = df
-    if category != "전체":
-        out = out[out["category"] == category]
-    if keyword:
-        out = out[out["question"].str.contains(keyword, na=False) | out["answer"].str.contains(keyword, na=False)]
-    return out
-
-
-if not config.is_db_configured():
-    st.info("DB 미설정 상태라 샘플 FAQ만 표시합니다.")
-    result = _filter_sample(SAMPLE_FAQ)
-else:
-    try:
-        result = load_faq(keyword, category)
-    except Exception as exc:  # noqa: BLE001
-        st.error(f"DB 조회 오류: {exc}")
-        result = _filter_sample(SAMPLE_FAQ)
-
-if result.empty:
-    st.warning("검색 결과가 없습니다. collectors/faq_crawler_a.py로 수집 후 적재했는지 확인해주세요.")
-else:
-    st.caption(f"총 {len(result)}건")
-    for _, row in result.iterrows():
-        with st.expander(f"**[{row['category']}]** {row['question']}"):
-            st.write(row["answer"])
-            st.caption(f"📎 출처: {row['source']}")
-
-st.divider()
-st.caption("🔀 단속·견인·이의신청 관련 질문은 사이드바의 'FAQ 단속견인' 페이지(담당: 연주)를 확인하세요. 추후 한 페이지로 통합 예정입니다.")
+      st.markdown("---")
