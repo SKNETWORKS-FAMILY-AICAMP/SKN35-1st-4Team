@@ -86,9 +86,14 @@ def main():
     RAW_PATH.parent.mkdir(parents=True, exist_ok=True)
     CLEANED_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+    # 최초 1회 실행 후에는 아래 3줄 주석처리
     df_raw = fetch_all_cctv()
     df_raw.to_csv(RAW_PATH, index=False, encoding="utf-8-sig")
     print(f"원본 저장: {RAW_PATH}")
+
+    # 이후 재실행 시 밑의 두줄 주석 해제
+    # df_raw = pd.read_csv(RAW_PATH,encoding="utf_8_sig")
+    # print(f")
 
     df_clean = clean(df_raw)
     df_clean.to_csv(CLEANED_PATH, index=False, encoding="utf-8-sig")

@@ -84,3 +84,6 @@ CREATE TABLE IF NOT EXISTS PARKING_LOG (
 );
 
 CREATE INDEX idx_parking_log_user_time ON PARKING_LOG(user_id, parked_at);
+
+SELECT count(*) FROM cctv_info;
+SELECT*FROM cctv_info LIMIT 10;
