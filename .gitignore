@@ -2,7 +2,9 @@
 .env.example
 ./.claude
 .venv
-./__pycache__
+__pycache__/  
+#   ./__pycache__ 에서 변경 
+
 .python-version
 # Claude / 에이전트 작업 기록
 .claude/
@@ -10,3 +12,10 @@
 
 # 로컬 회원/주차기록 DB (MySQL 미설정 시 폴백)
 data/app.db
+
+## ----------------- 혹시 데이터를 직접 재현할 경우를 위해
+data/raw/*.csv
+data/cleaned/*.csv
+## ------------------
+# 단, 주차장 목록은 저장소에 포함한다 (이 파일 하나로 주차장 검색이 바로 동작)
+!data/cleaned/parking_lot.csv
