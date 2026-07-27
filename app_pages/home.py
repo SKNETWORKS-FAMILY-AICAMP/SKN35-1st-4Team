@@ -272,12 +272,25 @@ with st.sidebar:
 
     # DB가 안 붙으면 주차장(CSV 폴백)만 뜨고 단속·CCTV 레이어가 통째로 사라진다.
     # 화면만 봐서는 "데이터가 원래 없나" 싶으니 원인을 분명히 알려준다.
-    if not config.is_db_configured():
+    if not config.is_db_configured() or not config.KAKAO_JS_KEY:
         st.warning(
-            "DB에 연결되지 않아 **단속 다발구역·CCTV**를 불러오지 못했습니다. "
-            "배포 환경이라면 **Manage app → Settings → Secrets** 에 `DB_*` 값을 넣어주세요.",
-            icon=":material/database_off:",
+            "설정이 덜 됐습니다. 배포 환경이라면 "
+            "**Manage app → ⋮ → Settings → Secrets** 에 값을 넣어주세요.",
+            icon=":material/key_off:",
         )
+        # 값은 절대 보여주지 않고, 어느 항목이 어디서 왔는지만 표로 확인시킨다.
+        with st.expander("설정 진단", icon=":material/troubleshoot:"):
+            st.dataframe(
+                pd.DataFrame(config.settings_report()),
+                column_config={
+                    "설정됨": st.column_config.CheckboxColumn("설정됨", width="small"),
+                },
+                hide_index=True,
+            )
+            st.caption(
+                "출처가 `없음` 인 항목이 아직 전달되지 않은 값입니다. "
+                "비밀번호나 키 값 자체는 표시하지 않습니다."
+            )
 
     if user is None:
         st.caption("로그인하면 내 주차 기록도 지도에 표시됩니다.")

@@ -83,6 +83,45 @@ DATA_GO_KR_API_KEY = _setting("DATA_GO_KR_API_KEY")
 SEOUL_OPENAPI_KEY = _setting("SEOUL_OPENAPI_KEY")
 
 
+def settings_report() -> list[dict]:
+    """각 설정값이 '어디에서' 왔는지 점검 결과.
+
+    배포하면 값이 안 보여서 "Secrets를 넣었는데 왜 안 되지"를 확인할 방법이 없다.
+    이름과 출처(환경변수 / Secrets / 없음)만 돌려준다 — 값은 절대 담지 않는다.
+    """
+    checks = [
+        ("DB_HOST", ("MYSQL_HOST", "DB_HOST")),
+        ("DB_PORT", ("MYSQL_PORT", "DB_PORT")),
+        ("DB_USERNAME", ("MYSQL_USER", "DB_USERNAME", "DB_USER")),
+        ("DB_PASSWORD", ("MYSQL_PASSWORD", "DB_PASSWORD")),
+        ("DB_DATABASE", ("MYSQL_DATABASE", "DB_DATABASE", "DB_NAME")),
+        ("KAKAO_JS_KEY", ("KAKAO_JS_KEY",)),
+        ("KAKAO_REST_KEY", ("KAKAO_REST_KEY",)),
+        ("SEOUL_OPENAPI_KEY", ("SEOUL_OPENAPI_KEY",)),
+    ]
+
+    try:  # streamlit 없이 돌리는 스크립트에서도 죽지 않게
+        import streamlit as st
+
+        secret_names = set(st.secrets.keys())
+    except Exception:  # noqa: BLE001
+        secret_names = set()
+
+    report = []
+    for label, names in checks:
+        source = "없음"
+        for name in names:
+            value = os.getenv(name)
+            if value and not _is_placeholder(value):
+                source = f"환경변수 {name}"
+                break
+            if name in secret_names:
+                source = f"Secrets {name}"
+                break
+        report.append({"항목": label, "출처": source, "설정됨": source != "없음"})
+    return report
+
+
 def is_db_configured() -> bool:
     """DB에 실제로 접속할 수 있는 설정이 갖춰졌는지.
 
