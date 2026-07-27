@@ -24,6 +24,14 @@ from sqlalchemy.engine import Engine
 import config
 
 
+class DataSourceError(RuntimeError):
+    """DB를 쓰기로 해놓고(=.env에 DB_* 설정) DB에서 못 읽었을 때.
+
+    화면에 이유를 그대로 띄우려고 따로 뒀다. 이 예외를 CSV 폴백으로
+    삼키면 안 된다 — 적재 누락이나 접속 끊김이 옛 CSV 데이터에 가려진다.
+    """
+
+
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
     """SQLAlchemy engine을 한 번만 생성해서 재사용한다 (연결 재사용/캐싱)."""

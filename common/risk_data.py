@@ -82,16 +82,30 @@ def distances_m(lat: float, lng: float, df: pd.DataFrame) -> np.ndarray:
 # 로더
 # ---------------------------------------------------------------------------
 def _read_sql(sql: str) -> pd.DataFrame | None:
-    """DB가 없거나 테이블이 비어 있으면 None."""
+    """DB에서 읽는다. DB 설정이 아예 없으면 None(=CSV로 폴백).
+
+    설정이 있는데 실패하면 예외를 그대로 올린다. 예전에는 여기서도 None을
+    돌려줘 CSV로 조용히 넘어갔는데, 그러면 화면은 멀쩡해 보이면서 실제로는
+    옛날 CSV를 보여주게 된다. 적재가 덜 됐거나 접속이 끊긴 걸 눈치채지
+    못하는 게 더 위험해서, 지금은 티 나게 실패시킨다.
+    """
     if not config.is_db_configured():
         return None
-    try:
-        from common.db import read_sql
 
+    from common.db import DataSourceError, read_sql
+
+    try:
         df = read_sql(sql)
-    except Exception:  # noqa: BLE001 - DB 미기동/미적재 등 어떤 이유든 CSV로 폴백
-        return None
-    return df if not df.empty else None
+    except Exception as exc:  # noqa: BLE001 - 원인 무관하게 사용자에게 알린다
+        raise DataSourceError(
+            f"DB에서 데이터를 읽지 못했습니다 ({type(exc).__name__}). "
+            "테이블이 비었으면 `uv run python loaders/load_all.py`, "
+            "접속이 문제면 .env의 DB_* 값을 확인하세요."
+        ) from exc
+
+    # 비어 있어도 그대로 돌려준다. 여기서 None을 주면 호출부가 CSV로 넘어가
+    # "적재가 안 된 상태"가 옛 CSV 데이터에 가려진다.
+    return df
 
 
 def _read_csv(path: Path) -> pd.DataFrame | None:
@@ -351,10 +365,14 @@ def _slots_from_frame(raw: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(ttl=1800, show_spinner=False)
 def _load_slots(csv_mtime: float) -> pd.DataFrame:
     # DB는 SQL에서 미리 집계한다 (단속 이력은 수백만 행이 될 수 있다).
-    # MySQL DAYOFWEEK는 일=1이라 (+5)%7로 파이썬 요일(월=0)에 맞춘다.
+    # MySQL DAYOFWEEK는 일=1이라 (+5)를 7로 나눈 나머지로 파이썬 요일(월=0)에 맞춘다.
+    #
+    # 나머지 연산에 % 대신 MOD()를 쓴다. pymysql은 파라미터 바인딩에 %s를 쓰기
+    # 때문에 SQL 안의 %는 %%로 escape해야 하는데, params 없이 보내면 아무도
+    # 되돌려주지 않아 %%가 그대로 DB에 도착해 문법 오류가 난다.
     from_db = _read_sql(
         "SELECT ROUND(latitude, 5) AS latitude, ROUND(longitude, 5) AS longitude, "
-        "HOUR(enforced_at) AS hour, (DAYOFWEEK(enforced_at) + 5) %% 7 AS weekday, "
+        "HOUR(enforced_at) AS hour, MOD(DAYOFWEEK(enforced_at) + 5, 7) AS weekday, "
         "COUNT(*) AS count "
         "FROM ENFORCEMENT_HISTORY "
         "WHERE latitude IS NOT NULL AND enforced_at IS NOT NULL "

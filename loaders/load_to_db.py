@@ -2,10 +2,22 @@
 정제 CSV -> MySQL 적재 공통 스크립트.
 
 사용법
+    # 주차장·CCTV·단속이력 세 개를 한 번에 (보통 이걸 쓴다)
+    uv run python loaders/load_all.py
+
+    # 테이블 하나만 골라서
     uv run python loaders/load_to_db.py --csv data/cleaned/parking_lot.csv \
         --table PARKING_LOT --if-exists truncate
 
-적재할 CSV는 `uv run python collectors/seoul_parking.py` 로 만든다.
+    # 적재 후 확인
+    uv run python loaders/check_db.py
+
+접속 대상은 .env(또는 st.secrets)의 DB_* 값을 따른다. 로컬 MySQL이든
+TiDB Cloud든 코드는 그대로고 접속 정보만 바꾸면 된다.
+
+주차장 CSV는 `uv run python collectors/seoul_parking.py` 로 만든다.
+단속 이력 CSV는 용량이 커서 git에 올리지 않으므로(.gitignore),
+배포판은 여기서 적재한 DB만 바라본다.
 
 PARKING_LOT 을 적재할 때는 표시용 컬럼(fee, operation_time)을 자동으로 만들어 넣고,
 스키마에 없는 컬럼은 버린다. 그 외 테이블은 CSV 컬럼을 그대로 넣는다.
@@ -32,6 +44,15 @@ from common.db import execute, get_engine  # noqa: E402
 from common.recommend import format_fee, format_hours  # noqa: E402
 
 PARKING_TABLE = "PARKING_LOT"
+ENFORCEMENT_TABLE = "ENFORCEMENT_HISTORY"
+CCTV_TABLE = "CCTV_INFO"
+
+# db/schema.sql 기준
+ENFORCEMENT_COLUMNS = ["address", "enforced_at", "latitude", "longitude"]
+CCTV_COLUMNS = ["address", "latitude", "longitude", "organization", "purpose"]
+
+# 23만 건을 한 번에 INSERT 하면 패킷 한도에 걸린다
+CHUNK = 5_000
 
 # db/schema.sql 의 PARKING_LOT 컬럼 = 수집 컬럼 + 표시용 2개
 PARKING_COLUMNS = [*COLUMNS, "fee", "operation_time"]
@@ -52,6 +73,76 @@ def prepare_parking(df: pd.DataFrame) -> pd.DataFrame:
     return out.where(pd.notna(out), None)
 
 
+def prepare_enforcement(df: pd.DataFrame) -> pd.DataFrame:
+    """단속 이력 CSV -> ENFORCEMENT_HISTORY 스키마.
+
+    원본이 '단속일/단속시간/구주소/위도/경도'로 오는 경우가 있어
+    common/risk_data.py 의 정규화 로직을 그대로 재사용한다.
+    """
+    from common.risk_data import ENFORCEMENT_COLUMN_MAP
+
+    out = df.copy()
+    if {"단속일", "단속시간"} <= set(out.columns):
+        day = pd.to_numeric(out["단속일"], errors="coerce")
+        out = out[day.notna()].copy()
+        out["단속일시"] = day[day.notna()].astype("int64").astype(str) + " " + out["단속시간"].astype(str)
+    out = out.rename(columns=ENFORCEMENT_COLUMN_MAP)
+
+    out["enforced_at"] = pd.to_datetime(out.get("enforced_at"), errors="coerce")
+    for col in ("latitude", "longitude"):
+        out[col] = pd.to_numeric(out.get(col), errors="coerce")
+
+    out = out.dropna(subset=["address"])
+    return out[ENFORCEMENT_COLUMNS].where(pd.notna(out[ENFORCEMENT_COLUMNS]), None)
+
+
+def prepare_cctv(df: pd.DataFrame) -> pd.DataFrame:
+    """CCTV 정제본 -> CCTV_INFO 스키마."""
+    out = df.copy()
+    for col in CCTV_COLUMNS:
+        if col not in out.columns:
+            out[col] = None
+    for col in ("latitude", "longitude"):
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+    out = out.dropna(subset=["address", "latitude", "longitude"])
+    return out[CCTV_COLUMNS]
+
+
+PREPARE = {
+    PARKING_TABLE: prepare_parking,
+    ENFORCEMENT_TABLE: prepare_enforcement,
+    CCTV_TABLE: prepare_cctv,
+}
+
+
+def load_csv(csv_path: str | Path, table: str, if_exists: str = "append") -> int:
+    """CSV 한 개를 테이블 하나에 적재하고 넣은 행 수를 돌려준다.
+
+    loaders/load_all.py 에서도 이 함수를 그대로 재사용한다.
+    """
+    df = pd.read_csv(csv_path, encoding="utf-8-sig")
+    print(f"읽음: {csv_path} ({len(df):,}행 × {len(df.columns)}컬럼)")
+
+    key = table.upper()
+    if key in PREPARE:
+        df = PREPARE[key](df)
+        print(f"{key} 스키마로 정리: {len(df):,}행 × {len(df.columns)}컬럼")
+
+    if if_exists == "truncate":
+        execute(f"TRUNCATE TABLE {table}")  # noqa: S608 - 코드/CLI로 지정한 테이블명
+        print(f"{table} 비움")
+        mode = "append"
+    else:
+        mode = if_exists
+
+    df.to_sql(
+        table, get_engine(), if_exists=mode, index=False,
+        chunksize=CHUNK, method="multi",
+    )
+    print(f"적재 완료 -> {table} ({len(df):,}행, mode={if_exists})")
+    return len(df)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="정제 CSV를 MySQL 테이블에 적재")
     parser.add_argument("--csv", required=True, help="적재할 CSV 경로")
@@ -63,23 +154,7 @@ def main() -> None:
         help="기존 데이터 처리 방식 (기본: append)",
     )
     args = parser.parse_args()
-
-    df = pd.read_csv(args.csv, encoding="utf-8-sig")
-    print(f"읽음: {args.csv} ({len(df):,}행 × {len(df.columns)}컬럼)")
-
-    if args.table.upper() == PARKING_TABLE:
-        df = prepare_parking(df)
-        print(f"{PARKING_TABLE} 스키마로 정리: {len(df.columns)}컬럼")
-
-    if args.if_exists == "truncate":
-        execute(f"TRUNCATE TABLE {args.table}")  # noqa: S608 - 사용자가 지정한 테이블명
-        print(f"{args.table} 비움")
-        if_exists = "append"
-    else:
-        if_exists = args.if_exists
-
-    df.to_sql(args.table, get_engine(), if_exists=if_exists, index=False)
-    print(f"적재 완료 -> {args.table} ({len(df):,}행, mode={args.if_exists})")
+    load_csv(args.csv, args.table, args.if_exists)
 
 
 if __name__ == "__main__":

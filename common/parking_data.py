@@ -33,15 +33,25 @@ DISTRICTS = ["종로구"]
 
 
 def _from_db() -> pd.DataFrame | None:
+    """DB에서 읽는다. DB 설정이 아예 없으면 None(=CSV로 폴백).
+
+    설정이 있는데 실패하면 예외를 올린다. 조용히 CSV로 넘어가면 화면은
+    멀쩡한데 실제로는 옛 CSV를 보고 있게 되어, 적재 누락이나 접속 끊김을
+    눈치챌 수 없다. 비어 있는 결과도 그대로 돌려준다(적재 안 된 상태를 감추지 않는다).
+    """
     if not config.is_db_configured():
         return None
-    try:
-        from common.db import read_sql
 
-        df = read_sql(f"SELECT * FROM {PARKING_TABLE}")  # noqa: S608 - 코드 상수
-    except Exception:  # noqa: BLE001 - DB 미기동/미적재 등 어떤 이유든 다음 단계로
-        return None
-    return df if not df.empty else None
+    from common.db import DataSourceError, read_sql
+
+    try:
+        return read_sql(f"SELECT * FROM {PARKING_TABLE}")  # noqa: S608 - 코드 상수
+    except Exception as exc:  # noqa: BLE001 - 원인 무관하게 사용자에게 알린다
+        raise DataSourceError(
+            f"DB에서 주차장 목록을 읽지 못했습니다 ({type(exc).__name__}). "
+            "테이블이 비었으면 `uv run python loaders/load_all.py`, "
+            "접속이 문제면 .env의 DB_* 값을 확인하세요."
+        ) from exc
 
 
 @st.cache_data(ttl=1800, show_spinner="주차장 데이터를 불러오는 중…")
@@ -50,6 +60,8 @@ def load_lots() -> tuple[pd.DataFrame, str]:
     lots = _from_db()
     note = f"DB {PARKING_TABLE}"
 
+    # DB에서 읽었으면 CSV는 쳐다보지 않는다. 아래 폴백은 .env에 DB 설정이
+    # 아예 없는 로컬 개발용이다 (DB가 있는데 실패하면 _from_db가 예외를 올린다).
     if lots is None and PARKING_CSV.exists():
         lots = pd.read_csv(PARKING_CSV, encoding="utf-8-sig")
         note = PARKING_CSV.name

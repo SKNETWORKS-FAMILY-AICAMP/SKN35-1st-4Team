@@ -21,6 +21,7 @@ import pandas as pd
 import streamlit as st
 
 import config
+from common.db import DataSourceError
 from common.geo import haversine_km
 from common.geolocation import browser_position, clear_position, map_drag_position
 from common.auth import current_user
@@ -114,10 +115,20 @@ LANDMARKS = {
     "혜화역(대학로)": (37.5822, 127.0019),
 }
 
-all_lots, source_notes = load_parking_lots()
-hotspots, hotspot_note = load_hotspots()
-cctv, cctv_note = load_cctv()
-slots = load_slots()
+# DB를 쓰기로 해놓고 못 읽으면 여기서 멈춘다. 예전처럼 CSV로 조용히 넘어가면
+# 화면은 멀쩡한데 실제로는 옛 데이터를 보여주게 되어, 그게 더 위험하다.
+try:
+    all_lots, source_notes = load_parking_lots()
+    hotspots, hotspot_note = load_hotspots()
+    cctv, cctv_note = load_cctv()
+    slots = load_slots()
+except DataSourceError as exc:
+    st.error(str(exc), icon=":material/database_off:")
+    st.caption(
+        f"접속 대상: {config.MYSQL_USER}@{config.MYSQL_HOST}:{config.MYSQL_PORT}"
+        f"/{config.MYSQL_DATABASE}"
+    )
+    st.stop()
 
 # 로그인한 사용자의 주차 기록 (비로그인이면 조회하지 않는다)
 user = current_user()
@@ -125,10 +136,18 @@ my_logs = list_logs(user["user_id"]) if user else pd.DataFrame()
 source_notes = [*source_notes, hotspot_note, cctv_note]
 
 if all_lots.empty:
-    st.error(
-        "주차장 데이터를 한 건도 불러오지 못했습니다. "
-        "`uv run python collectors/seoul_parking.py`로 `data/cleaned/parking_lot.csv`를 만들어주세요."
-    )
+    if config.is_db_configured():
+        st.error(
+            "DB의 PARKING_LOT 테이블이 비어 있습니다. "
+            "`uv run python loaders/load_all.py`로 적재해주세요.",
+            icon=":material/database_off:",
+        )
+    else:
+        st.error(
+            "주차장 데이터를 한 건도 불러오지 못했습니다. "
+            "`uv run python collectors/seoul_parking.py`로 "
+            "`data/cleaned/parking_lot.csv`를 만들어주세요."
+        )
     st.stop()
 
 # ── 사이드바 ──────────────────────────────────────────────────

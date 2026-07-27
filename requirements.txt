@@ -1,7 +1,6 @@
 # Streamlit Community Cloud 배포용 (로컬은 uv sync 사용)
 bs4>=0.0.2
 certifi>=2024.2.2
-config>=0.5.1
 cryptography>=49.0.0
 dotenv>=0.9.9
 openpyxl>=3.1.5
