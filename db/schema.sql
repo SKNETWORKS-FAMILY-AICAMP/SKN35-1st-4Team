@@ -85,8 +85,8 @@ CREATE TABLE IF NOT EXISTS FAQ (
     source   VARCHAR(255)
 );
 -- 5-2. 민원 게시판 (연주/은미 - 종로구 공개 상담민원)
-CREATE TABLE IF NOT EXISTS FAQ2 (
-    faq2_id   INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS complain (
+    faq2_id INT AUTO_INCREMENT PRIMARY KEY,
     q_title VARCHAR(100) NOT NULL,
     q_writer varchar(10) NOT NULL,
     q_date DATETIME NOT NULL,
