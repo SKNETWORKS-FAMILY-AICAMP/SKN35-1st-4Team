@@ -7,3 +7,6 @@
 # Claude / 에이전트 작업 기록
 .claude/
 .agents/
+
+# 로컬 회원/주차기록 DB (MySQL 미설정 시 폴백)
+data/app.db

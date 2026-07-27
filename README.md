@@ -10,7 +10,7 @@
 |---|---|---|
 | 치훈 | 서울시 불법주정차 단속 정보 (OA-22190) | `collectors/enforcement_history.py`, `pages/1_단속_다발구역.py` |
 | 종원 | 단속 CCTV 위치정보 (OA-20471) | `collectors/cctv_api.py`, `pages/2_CCTV_지도.py` |
-| 승희 | 주차정보안내시스템 크롤링 (공영·민영, 좌표 100%) + 실시간 주차 여유 | `collectors/seoul_parking.py`, `common/parking_data.py`, `common/recommend.py`, `pages/3_주차장_검색.py` |
+| 승희 | 주차정보안내시스템 크롤링 (공영·민영, 좌표 100%) + 실시간 주차 여유 + 로그인·주차기록 | `collectors/seoul_parking.py`, `common/parking_data.py`, `common/recommend.py`, `common/auth.py`, `common/parking_log.py`, `pages/3_주차장_검색.py`, `pages/6_로그인_회원가입.py`, `pages/7_마이페이지.py` |
 | 연주 또는 은미 | 크롤링 A (FAQ - 이용안내 계열) | `collectors/faq_crawler_a.py`, `pages/4_FAQ_이용안내.py` |
 | 연주 또는 은미 | 크롤링 B (FAQ - 단속·견인·이의신청 계열) | `collectors/faq_crawler_b.py`, `pages/5_FAQ_단속견인.py` |
 
@@ -28,12 +28,16 @@
 │   ├── 2_CCTV_지도.py          # 종원
 │   ├── 3_주차장_검색.py        # 승희
 │   ├── 4_FAQ_이용안내.py       # 연주 또는 은미  ┐ 추후 한 페이지로
-│   └── 5_FAQ_단속견인.py       # 연주 또는 은미  ┘ 통합 예정
+│   ├── 5_FAQ_단속견인.py       # 연주 또는 은미  ┘ 통합 예정
+│   ├── 6_로그인_회원가입.py     # 승희
+│   └── 7_마이페이지.py         # 승희 - 주차 등록 + 주차 기록
 │
 ├── common/                    # 공유 유틸
 │   ├── db.py                  # MySQL 연결 + read_sql/execute
 │   ├── kakao_map.py           # 카카오맵 HTML 빌더 (커스텀 마커/말풍선/범례/지오코딩)
 │   ├── geo.py                 # 거리 계산 (지오코딩 함수 포함 - REST 키 발급 시 사용)
+│   ├── auth.py                # 승희 - 회원가입·로그인 (pbkdf2 해싱, MySQL/SQLite 자동 전환)
+│   ├── parking_log.py         # 승희 - 주차 기록 저장·조회·요약
 │   ├── recommend.py           # 승희 - 예상요금·운영여부·추천 점수 (순수 함수, 자체 테스트 포함)
 │   ├── parking_data.py        # 승희 - 주차장 데이터 로더 (DB -> CSV -> 즉석 수집 폴백)
 │   └── ui.py                  # 공통 디자인 (CSS, 히어로 배너, 카드, 상태 칩)
@@ -201,6 +205,16 @@ uv run python loaders/load_to_db.py --csv data/cleaned/parking_lot.csv --table P
 ```bash
 uv run python common/recommend.py   # 예상요금·운영여부·추천 점수 테스트
 ```
+
+### 로그인 · 주차기록 (승희)
+
+`.env`에 MySQL 정보가 있으면 MySQL의 `USERS` / `PARKING_LOG` 을 쓰고,
+없으면 `data/app.db`(SQLite)를 자동으로 만들어 씁니다. `.env`만 채우면 코드 수정 없이 넘어갑니다.
+
+- 비밀번호는 `pbkdf2_sha256`(반복 20만회 + 사용자별 salt)으로 해시해서 저장하고 평문은 남기지 않습니다.
+- 로그인 상태는 `st.session_state`에 두므로 **브라우저를 새로 고치면 로그아웃**됩니다
+  (쿠키를 쓰려면 별도 컴포넌트가 필요해서 의도적으로 세션 기반으로 뒀습니다).
+- `data/app.db`는 개인 데이터라 `.gitignore`에 넣었습니다.
 
 ## 데이터 소스 메모 (실제로 열어서 확인한 결과)
 

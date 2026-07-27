@@ -8,7 +8,7 @@ Streamlit/DB에 의존하지 않는 계산 전용 모듈이라 단독 테스트�
 각 점수는 0~1로 정규화되며, 가중치는 화면의 슬라이더로 사용자가 조절한다.
 
 공영/민영 구분 없이 동일한 컬럼 규약(base_fee, add_fee, weekday_start ...)만 맞으면
-그대로 동작한다. 컬럼 규약은 collectors/merge_parking.py의 TABLE_COLUMNS 참고.
+그대로 동작한다. 컬럼 규약은 collectors/seoul_parking.py의 COLUMNS 참고.
 """
 
 from datetime import datetime

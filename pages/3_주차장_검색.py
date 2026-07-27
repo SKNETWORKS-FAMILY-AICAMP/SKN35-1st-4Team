@@ -50,7 +50,10 @@ LANDMARKS = {
 all_lots, source_notes = load_parking_lots()
 
 if all_lots.empty:
-    st.error("주차장 데이터를 한 건도 불러오지 못했습니다. `seoul_parking.csv`가 저장소에 있는지 확인해주세요.")
+    st.error(
+        "주차장 데이터를 한 건도 불러오지 못했습니다. "
+        "`uv run python collectors/seoul_parking.py`로 `data/cleaned/parking_lot.csv`를 만들어주세요."
+    )
     st.stop()
 
 # ── 사이드바 검색 조건 ────────────────────────────────────────

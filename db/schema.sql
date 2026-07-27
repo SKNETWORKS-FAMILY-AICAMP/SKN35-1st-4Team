@@ -93,16 +93,28 @@ CREATE TABLE IF NOT EXISTS USERS (
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 7. 사용자 주차기록 ("내 차 기억하기" 기능용)
+-- 7. 사용자 주차기록 (승희 - "내 차 기억하기" 기능용)
+--   주차장 목록에서 고르면 parking_id/parking_name이 채워지고,
+--   노상처럼 등록된 주차장이 아니면 address만 채워진다.
+--   parking_name을 따로 저장(비정규화)하는 이유: 주차장 목록이 DB가 아니라 CSV에서
+--   올 수도 있어 PARKING_LOT 조인이 항상 되지는 않는다. 기록 시점 이름을 남기는 효과도 있다.
 CREATE TABLE IF NOT EXISTS PARKING_LOG (
-    log_id     INT AUTO_INCREMENT PRIMARY KEY,
-    user_id    INT NOT NULL,
-    address    VARCHAR(255) NOT NULL,
-    latitude   DECIMAL(10, 8),
-    longitude  DECIMAL(11, 8),
-    parked_at  DATETIME NOT NULL,
-    is_charged BOOLEAN NOT NULL DEFAULT FALSE,
+    log_id       INT AUTO_INCREMENT PRIMARY KEY,
+    user_id      INT NOT NULL,
+    parking_id   VARCHAR(50),              -- PARKING_LOT.parking_id (직접 입력이면 NULL)
+    parking_name VARCHAR(255),             -- 표시용 주차장명 (직접 입력이면 NULL)
+    address      VARCHAR(255) NOT NULL,
+    latitude     DECIMAL(10, 8),
+    longitude    DECIMAL(11, 8),
+    parked_at    DATETIME NOT NULL,
+    is_charged   BOOLEAN NOT NULL DEFAULT FALSE,
+    memo         VARCHAR(255),
     FOREIGN KEY (user_id) REFERENCES USERS(user_id) ON DELETE CASCADE
 );
+
+-- 이전 스키마로 PARKING_LOG를 이미 만들었다면 컬럼만 추가하면 된다:
+--   ALTER TABLE PARKING_LOG ADD COLUMN parking_id VARCHAR(50) AFTER user_id;
+--   ALTER TABLE PARKING_LOG ADD COLUMN parking_name VARCHAR(255) AFTER parking_id;
+--   ALTER TABLE PARKING_LOG ADD COLUMN memo VARCHAR(255);
 
 CREATE INDEX idx_parking_log_user_time ON PARKING_LOG(user_id, parked_at);
