@@ -89,8 +89,8 @@ st.markdown("""
 @st.cache_data(ttl=600)
 def load_faq_data() -> pd.DataFrame:
     query = """
-        SELECT 
-            faq2_id, 
+        SELECT
+            ROW_NUMBER() OVER (ORDER BY q_date ASC, faq2_id ASC) AS faq2_id,
             q_title, 
             q_writer, 
             q_date, 
@@ -99,7 +99,7 @@ def load_faq_data() -> pd.DataFrame:
             a_date, 
             answer 
         FROM complain
-        ORDER BY faq2_id DESC
+        ORDER BY q_date DESC
     """
     try:
         return read_sql(query)
