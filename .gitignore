@@ -7,3 +7,4 @@
 # Claude / 에이전트 작업 기록
 .claude/
 .agents/
+./data/raw/enforcement_data
