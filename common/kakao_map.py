@@ -20,6 +20,39 @@ import pandas as pd
 
 DEFAULT_COLOR = "#4361ee"
 
+# 카테고리별 마커 아이콘 (category_icons 인자에 넣어서 쓴다).
+# 인라인 SVG라 외부 이미지 요청이 없고, 흰색으로 그려져 마커 배경색 위에 얹힌다.
+ICON_PARKING = (
+    '<svg viewBox="0 0 24 24" width="16" height="16">'
+    '<text x="12" y="18" text-anchor="middle" font-size="17" font-weight="700"'
+    ' fill="currentColor" font-family="Pretendard, sans-serif">P</text>'
+    "</svg>"
+)
+
+ICON_MY_LOCATION = (
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none"'
+    ' stroke="currentColor" stroke-width="2.4" stroke-linecap="round">'
+    '<circle cx="12" cy="12" r="4.5" fill="currentColor" stroke="none"/>'
+    '<path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/>'
+    "</svg>"
+)
+
+ICON_CCTV = (
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">'
+    '<rect x="1.5" y="7" width="13" height="6.5" rx="1.5"/>'
+    '<path d="M15 8.6l5.5-2.6v11l-5.5-2.6z"/>'
+    '<path d="M6 13.5h2.6v5a1.3 1.3 0 0 1-2.6 0z"/>'
+    "</svg>"
+)
+
+
+def _details(value) -> list[list[str]]:
+    """말풍선에 표 형태로 넣을 [라벨, 값] 목록. 없으면 빈 목록."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [[str(pair[0]), str(pair[1])] for pair in value if len(pair) >= 2]
+
+
 def _coord(value) -> float | None:
     """좌표를 float로. 결측/변환불가면 None (마커를 찍지 않는다)."""
     try:
@@ -37,13 +70,26 @@ def build_map_html(
     category_colors: dict[str, str] | None = None,
     level: int = 6,
     height: int = 600,
+    polygons: list[dict] | None = None,
+    category_icons: dict[str, str] | None = None,
 ) -> str:
-    """마커가 찍힌 카카오맵 HTML을 문자열로 반환.
+    """마커(+선택적 폴리곤)가 찍힌 카카오맵 HTML을 문자열로 반환.
 
     df는 최소한 name, lat, lng, category, info 컬럼을 가지고 있어야 한다.
     좌표가 비어 있는 행은 마커를 찍을 수 없으므로 조용히 건너뛴다.
+
+    polygons는 구역을 색으로 칠할 때 쓴다 (단속 다발구역 등). 각 항목은
+        {"path": [[위도, 경도], ...], "color": "#e63946", "opacity": 0.35,
+         "name": "표시명", "info": "말풍선 내용"}
+    형태이고, 넘기지 않으면 기존 호출부(CCTV 지도 등)와 동작이 완전히 같다.
+
+    category_icons는 특정 카테고리의 마커를 원형 점 대신 아이콘으로 그린다.
+    예) category_icons={"단속 CCTV": ICON_CCTV}
+    값은 신뢰할 수 있는 마크업만 넣어야 한다 (innerHTML로 삽입된다).
     """
     category_colors = category_colors or {}
+    category_icons = category_icons or {}
+    polygons_json = json.dumps(polygons or [], ensure_ascii=False)
 
     # 마커 데이터를 JSON으로 한 번에 넘긴다 (행별 f-string 이스케이프 문제 방지)
     markers = []
@@ -59,6 +105,8 @@ def build_map_html(
                 "category": str(row.get("category", "")),
                 "info": str(row.get("info", "")),
                 "color": category_colors.get(row.get("category", ""), DEFAULT_COLOR),
+                "icon": category_icons.get(row.get("category", ""), ""),
+                "details": _details(row.get("details")),
             }
         )
     markers_json = json.dumps(markers, ensure_ascii=False)
@@ -90,6 +138,15 @@ def build_map_html(
                 box-sizing: content-box;
             }}
 
+            /* 아이콘 마커 (CCTV 등) */
+            .pin.icon {{
+                width: 24px; height: 24px;
+                border-radius: 7px;
+                display: flex; align-items: center; justify-content: center;
+                color: #ffffff;
+            }}
+            .pin.icon svg {{ display: block; }}
+
             /* 말풍선 */
             .bubble {{
                 position: relative;
@@ -101,15 +158,33 @@ def build_map_html(
                 font-family: 'Pretendard', -apple-system, 'Malgun Gothic', sans-serif;
                 font-size: 12.5px;
                 line-height: 1.5;
-                max-width: 240px;
+                min-width: 200px;
+                max-width: 280px;
                 white-space: normal;
             }}
-            .bubble .title {{ font-weight: 700; margin-bottom: 2px; }}
+            .bubble .title {{
+                font-weight: 700; font-size: 13.5px; color:#1f2544;
+                margin-bottom: 4px; word-break: keep-all;
+            }}
             .bubble .cat {{
                 display:inline-block; font-size:10.5px; font-weight:600; color:#fff;
-                border-radius:999px; padding:1px 8px; margin-bottom:4px;
+                border-radius:999px; padding:1px 8px;
             }}
-            .bubble .info {{ color:#555; }}
+            .bubble .info {{
+                display:block; color:#6b7280; font-size:11.5px;
+                margin-top:5px; word-break: keep-all;
+            }}
+            .bubble .rows {{
+                margin-top:8px; padding-top:7px; border-top:1px solid #eef0f5;
+                display:flex; flex-direction:column; gap:4px;
+            }}
+            .bubble .row {{ display:flex; gap:10px; align-items:baseline; }}
+            .bubble .row .k {{
+                flex:0 0 46px; color:#9095a3; font-size:11px;
+            }}
+            .bubble .row .v {{
+                flex:1; color:#2b2f3a; font-weight:600; word-break: keep-all;
+            }}
             .bubble::after {{
                 content:""; position:absolute; left:50%; bottom:-7px;
                 transform: translateX(-50%);
@@ -177,22 +252,67 @@ def build_map_html(
             map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
 
             var markers = {markers_json};
+            var polygons = {polygons_json};
             var openBubble = null;
+
+            // 구역 색칠 (단속 다발구역 등). 마커보다 먼저 그려 마커가 위에 오게 한다.
+            polygons.forEach(function(p) {{
+                var path = p.path.map(function(pt) {{
+                    return new kakao.maps.LatLng(pt[0], pt[1]);
+                }});
+                var area = new kakao.maps.Polygon({{
+                    path: path,
+                    strokeWeight: 1,
+                    strokeColor: p.color,
+                    strokeOpacity: 0.7,
+                    strokeStyle: 'solid',
+                    fillColor: p.color,
+                    fillOpacity: p.opacity
+                }});
+                area.setMap(map);
+
+                // 마우스를 올리면 진해져서 어느 칸인지 알아보기 쉽다
+                kakao.maps.event.addListener(area, 'mouseover', function() {{
+                    area.setOptions({{ fillOpacity: Math.min(p.opacity + 0.25, 0.9) }});
+                }});
+                kakao.maps.event.addListener(area, 'mouseout', function() {{
+                    area.setOptions({{ fillOpacity: p.opacity }});
+                }});
+
+                kakao.maps.event.addListener(area, 'click', function(mouseEvent) {{
+                    if (openBubble) openBubble.setMap(null);
+                    var html = '<div class="bubble">'
+                        + '<div class="title">' + p.name + '</div>'
+                        + '<span class="cat" style="background:' + p.color + '">구역</span><br/>'
+                        + '<span class="info">' + p.info + '</span>'
+                        + '</div>';
+                    openBubble = new kakao.maps.CustomOverlay({{
+                        position: mouseEvent.latLng, content: html, yAnchor: 1.35, zIndex: 20
+                    }});
+                    openBubble.setMap(map);
+                }});
+            }});
 
             function drawMarker(m, pos) {{
                 // 원형 커스텀 마커
                 var pinEl = document.createElement('div');
-                pinEl.className = 'pin';
+                pinEl.className = m.icon ? 'pin icon' : 'pin';
                 pinEl.style.background = m.color;
+                if (m.icon) pinEl.innerHTML = m.icon;
                 new kakao.maps.CustomOverlay({{
                     position: pos, content: pinEl, map: map, yAnchor: 0.5
                 }});
 
                 // 클릭 시 말풍선 (하나만 열리도록 토글)
+                var rows = (m.details || []).map(function(d) {{
+                    return '<div class="row"><span class="k">' + d[0] + '</span>'
+                         + '<span class="v">' + d[1] + '</span></div>';
+                }}).join('');
                 var bubbleHtml = '<div class="bubble">'
                     + '<div class="title">' + m.name + '</div>'
-                    + (m.category ? '<span class="cat" style="background:' + m.color + '">' + m.category + '</span><br/>' : '')
-                    + '<span class="info">' + m.info + '</span>'
+                    + (m.category ? '<span class="cat" style="background:' + m.color + '">' + m.category + '</span>' : '')
+                    + (m.info ? '<span class="info">' + m.info + '</span>' : '')
+                    + (rows ? '<div class="rows">' + rows + '</div>' : '')
                     + '</div>';
                 var bubble = new kakao.maps.CustomOverlay({{
                     position: pos, content: bubbleHtml, yAnchor: 1.35, zIndex: 20
