@@ -14,40 +14,53 @@ import pandas as pd
 import streamlit as st
 
 import config
-from common.auth import logout, require_login, storage_label
+from common.auth import require_login, storage_label
 from common.kakao_map import build_map_html
 from common.parking_data import load_parking_lots
 from common.parking_log import add_log, delete_log, list_logs, summary
-from common.ui import apply_style, hero
+from common.ui import (
+    AMBER,
+    GREEN,
+    MARK_CAR,
+    empty_state,
+    hero,
+    savings_report,
+    section,
+)
 
-st.set_page_config(page_title="마이페이지", page_icon="🚙", layout="wide")
-apply_style()
-hero("🚙", "마이페이지", "주차한 위치를 기록하고 다시 찾아보세요. (담당: 승희)")
+HERO_SLOT = st.container()
 
 user = require_login("주차 기록은 로그인 후 이용할 수 있습니다.")
 
 DIRECT_INPUT = "주소 직접 입력"
 
-# ── 내 정보 ───────────────────────────────────────────────────
-with st.container(horizontal=True, horizontal_alignment="left"):
-    st.metric("아이디", user["username"])
-    if st.button("로그아웃"):
-        logout()
-        st.rerun()
-
 logs = list_logs(user["user_id"])
 stats = summary(logs)
 
-cols = st.columns(4)
-cols[0].metric("총 주차 기록", f"{stats['total']:,}건")
-cols[1].metric("이번 달", f"{stats['this_month']:,}건")
-cols[2].metric("유료 비율", f"{stats['paid_ratio'] * 100:.0f}%")
-cols[3].metric("가장 자주 간 곳", stats["favorite"])
+with HERO_SLOT:
+    hero(
+        MARK_CAR,
+        f"{user['username']} 님의 주차 기록",
+        "주차한 자리를 남겨두면 다시 찾기도 쉽고, 아낀 과태료도 쌓입니다.",
+        chips=[
+            f"기록 <b>{stats['total']:,}</b>건",
+            f"이번 달 <b>{stats['this_month']:,}</b>건",
+        ],
+    )
 
-st.write("")
+# 기록 한 건 = 그때 불법주차 대신 주차장을 골랐다는 뜻으로 보고 과태료만큼 센다.
+# 실제 지출을 뺀 순이익이 아니라 습관을 칭찬하는 지표다.
+if stats["total"]:
+    savings_report(stats["total"], stats["total"] * 40_000)
+
+cols = st.columns(4)
+cols[0].metric("총 주차 기록", f"{stats['total']:,}건", border=True)
+cols[1].metric("이번 달", f"{stats['this_month']:,}건", border=True)
+cols[2].metric("유료 비율", f"{stats['paid_ratio'] * 100:.0f}%", border=True)
+cols[3].metric("가장 자주 간 곳", stats["favorite"], border=True)
 
 # ── 주차 등록 ─────────────────────────────────────────────────
-st.subheader("주차 등록", divider="gray")
+section("주차 등록", "어디에 세웠는지 남겨두세요")
 
 lots, _ = load_parking_lots()
 lot_names = sorted(lots["parking_name"].dropna().unique().tolist())
@@ -104,10 +117,14 @@ if saved:
         st.rerun()
 
 # ── 주차 기록 ─────────────────────────────────────────────────
-st.subheader("주차 기록", divider="gray")
+section("주차 기록", "지도에서 내가 세웠던 자리를 다시 볼 수 있어요")
 
 if logs.empty:
-    st.info("아직 주차 기록이 없습니다. 위에서 첫 기록을 남겨보세요.")
+    empty_state(
+        "garage",
+        "아직 기록이 없어요",
+        "위에서 첫 주차 기록을 남기면 여기 지도에 표시됩니다.",
+    )
     st.stop()
 
 latest = logs.iloc[0]
@@ -134,7 +151,7 @@ if config.KAKAO_JS_KEY and not mappable.empty:
             app_key=config.KAKAO_JS_KEY,
             center_lat=mappable["latitude"].mean(),
             center_lng=mappable["longitude"].mean(),
-            category_colors={"유료": "#ff9f1c", "무료": "#2ec4b6"},
+            category_colors={"유료": AMBER, "무료": GREEN},
             level=6,
             height=420,
         ),

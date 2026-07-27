@@ -460,11 +460,13 @@ def time_advice(profile: pd.Series, now: datetime | None = None) -> dict | None:
 # 구역 시각화 (격자 밀집도 -> 카카오맵 Polygon)
 # ---------------------------------------------------------------------------
 # 밀집도 단계별 (채우기 색, 투명도). 뒤로 갈수록 진하다.
+# 앗차차 팔레트의 순차색(.streamlit/config.toml chartSequentialColors)과 같은 계열.
+# 옅은 살구 -> 진한 벽돌색 순으로 뜨거워진다.
 GRID_LEVELS = [
-    ("#ffd166", 0.25),  # 낮음
-    ("#f4a261", 0.35),
-    ("#e76f51", 0.45),
-    ("#e63946", 0.55),  # 높음
+    ("#FFCBAC", 0.30),  # 낮음
+    ("#FF8F5C", 0.38),
+    ("#DE5722", 0.46),
+    ("#9E360D", 0.55),  # 높음
 ]
 
 METRES_PER_DEGREE = 111_320
@@ -543,9 +545,58 @@ def build_density_grid(
                 "opacity": opacity,
                 "name": f"{cell_m}m 격자",
                 "info": f"이 구역 누적 {cell['weight']:,.0f}건",
+                # 표시 문구에서 숫자를 되파싱하지 않도록 원본 값도 같이 넘긴다
+                "count": int(cell["weight"]),
             }
         )
     return polygons
+
+
+def build_heat_blobs(
+    points: pd.DataFrame,
+    cell_m: int = 150,
+    top_ratio: float | None = 0.25,
+    weight_col: str | None = None,
+) -> list[dict]:
+    """단속 다발구역을 '열기 뭉치'(원)로 그리기 위한 목록.
+
+    격자 사각형은 데이터가 정확해도 지도 위에서는 도시 블록처럼 보여서
+    "여기가 왜 네모지?" 하고 헷갈린다. 같은 격자 집계를 쓰되 칸 중심에
+    원을 얹으면 인접한 칸끼리 겹쳐 번지듯 보여 열지도처럼 읽힌다.
+
+    집계 값은 build_density_grid 와 완전히 같다 — 모양만 바꾼 것이라
+    화면에 뜨는 건수는 원본 단속 건수 그대로다.
+
+    반지름은 건수 비율에 따라 cell_m 의 0.55~1.0 배. 가장 뜨거운 칸은
+    pulse=True 로 표시해 지도에서 숨쉬듯 깜빡이게 한다.
+    """
+    cells = build_density_grid(
+        points, cell_m=cell_m, min_count=1, top_ratio=top_ratio, weight_col=weight_col
+    )
+    if not cells:
+        return []
+
+    top = max(cell["count"] for cell in cells) or 1
+
+    blobs = []
+    for cell in cells:
+        # path 는 [남서, 남동, 북동, 북서] 순서라 대각 두 점의 평균이 중심이다
+        (south, west), (north, east) = cell["path"][0], cell["path"][2]
+        ratio = cell["count"] / top
+        blobs.append(
+            {
+                "lat": (south + north) / 2,
+                "lng": (west + east) / 2,
+                "radius_m": cell_m * (0.55 + 0.45 * ratio),
+                "color": cell["color"],
+                "opacity": cell["opacity"],
+                "name": cell["name"],
+                "info": cell["info"],
+                "count": cell["count"],
+                "pulse": cell["count"] >= top,  # 가장 뜨거운 칸만
+            }
+        )
+    return blobs
 
 
 def nearest_parking(lat: float, lng: float, lots: pd.DataFrame, limit: int = 3) -> pd.DataFrame:

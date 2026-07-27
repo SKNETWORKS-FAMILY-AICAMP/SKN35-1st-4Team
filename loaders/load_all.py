@@ -32,7 +32,7 @@ TARGETS: list[tuple[str, Path, str]] = [
     ("PARKING_LOT", ROOT / "data/cleaned/parking_lot.csv", "주차장"),
     ("CCTV_INFO", ROOT / "data/cleaned/cctv_cleaned.csv", "단속 CCTV"),
     ("FAQ", ROOT / "data/cleaned/FAQ_sample_.csv", "FAQ"),
-    ("FAQ2", ROOT / "data/cleaned/complain_faq2_result.csv", "민원 게시판"),
+    ("complain", ROOT / "data/cleaned/complain_faq2_result.csv", "민원 게시판"),
     (
         "ENFORCEMENT_HISTORY",
         ROOT / "data/cleaned/종로구_단속정보_통합_데이터.csv",
@@ -59,13 +59,15 @@ def main() -> None:
 
     targets = TARGETS
     if args.only:
+        # 테이블명 대소문자는 섞여 있다(PARKING_LOT vs complain). 비교할 때만 맞춘다.
         wanted = {name.upper() for name in args.only}
-        unknown = wanted - {table for table, _, _ in TARGETS}
+        known = {table.upper() for table, _, _ in TARGETS}
+        unknown = wanted - known
         if unknown:
             print(f"✗ 모르는 테이블: {', '.join(sorted(unknown))}")
             print(f"  가능한 값: {', '.join(t for t, _, _ in TARGETS)}")
             raise SystemExit(2)
-        targets = [item for item in TARGETS if item[0] in wanted]
+        targets = [item for item in TARGETS if item[0].upper() in wanted]
 
     # CSV가 하나라도 없으면 절반만 적재된 DB를 만들지 말고 미리 멈춘다.
     # (단속이력 CSV는 용량 때문에 git에 없어서 새로 받은 clone에서 자주 빠진다.)

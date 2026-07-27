@@ -47,19 +47,20 @@ PARKING_TABLE = "PARKING_LOT"
 ENFORCEMENT_TABLE = "ENFORCEMENT_HISTORY"
 CCTV_TABLE = "CCTV_INFO"
 FAQ_TABLE = "FAQ"
-FAQ2_TABLE = "FAQ2"
+COMPLAIN_TABLE = "COMPLAIN"  # 민원 게시판 (예전 이름 FAQ2)
 
 # db/schema.sql 기준
 ENFORCEMENT_COLUMNS = ["address", "enforced_at", "latitude", "longitude"]
 CCTV_COLUMNS = ["address", "latitude", "longitude", "organization", "purpose"]
 # faq_id 는 AUTO_INCREMENT 라 넣지 않는다
 FAQ_COLUMNS = ["category", "question", "answer", "source"]
-# 민원 게시판. faq2_id 는 원본 CSV 값이 그대로 INT 라 살려서 넣는다
-FAQ2_COLUMNS = [
+# 민원 게시판. faq2_id 는 원본 CSV 값이 그대로 INT 라 살려서 넣는다.
+# complain 에는 source 컬럼이 없다 (db/schema.sql 참고).
+COMPLAIN_COLUMNS = [
     "faq2_id", "q_title", "q_writer", "q_date",
-    "question", "a_depart", "a_date", "answer", "source",
+    "question", "a_depart", "a_date", "answer",
 ]
-FAQ2_DATE_COLUMNS = ["q_date", "a_date"]
+COMPLAIN_DATE_COLUMNS = ["q_date", "a_date"]
 
 # 23만 건을 한 번에 INSERT 하면 패킷 한도에 걸린다
 CHUNK = 5_000
@@ -135,27 +136,26 @@ def prepare_faq(df: pd.DataFrame) -> pd.DataFrame:
     return out[FAQ_COLUMNS]
 
 
-def prepare_faq2(df: pd.DataFrame) -> pd.DataFrame:
-    """민원 게시판 정제본 -> FAQ2 스키마.
+def prepare_complain(df: pd.DataFrame) -> pd.DataFrame:
+    """민원 게시판 정제본 -> complain 스키마.
 
     q_date/a_date 는 CSV에서 문자열로 읽히는데 컬럼 타입은 DATETIME 이라
     미리 파싱해서 넣는다. 파싱 실패한 행은 NOT NULL 제약에 걸리므로 버린다.
     """
     out = df.copy()
-    for col in FAQ2_COLUMNS:
+    for col in COMPLAIN_COLUMNS:
         if col not in out.columns:
             out[col] = None
 
-    for col in FAQ2_DATE_COLUMNS:
+    for col in COMPLAIN_DATE_COLUMNS:
         out[col] = pd.to_datetime(out[col], errors="coerce")
 
-    required = [c for c in FAQ2_COLUMNS if c != "source"]
     before = len(out)
-    out = out.dropna(subset=required)
+    out = out.dropna(subset=COMPLAIN_COLUMNS)
     if len(out) < before:
         print(f"  NOT NULL 위반 {before - len(out)}행 제외")
 
-    return out[FAQ2_COLUMNS]
+    return out[COMPLAIN_COLUMNS]
 
 
 PREPARE = {
@@ -163,7 +163,7 @@ PREPARE = {
     ENFORCEMENT_TABLE: prepare_enforcement,
     CCTV_TABLE: prepare_cctv,
     FAQ_TABLE: prepare_faq,
-    FAQ2_TABLE: prepare_faq2,
+    COMPLAIN_TABLE: prepare_complain,
 }
 
 

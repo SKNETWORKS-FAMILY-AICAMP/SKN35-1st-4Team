@@ -15,11 +15,9 @@ import streamlit as st
 
 import config
 from common.db import read_sql
-from common.ui import apply_style, hero
+from common.ui import MARK_CHAT, empty_state, hero, section
 
-st.set_page_config(page_title="FAQ - 이용안내", page_icon="💬", layout="wide")
-apply_style()
-hero("💬", "FAQ - 주정차 이용안내", "단속 기준, 과태료, 이의신청 등 궁금한 내용을 검색하세요. (담당: 연주 또는 은미)")
+HERO_SLOT = st.container()
 
 # DB가 없을 때 쓰는 샘플의 카테고리
 SAMPLE_CATEGORIES = ["이용안내", "결제오류", "정기권", "요금감면"]
@@ -56,6 +54,12 @@ def load_categories() -> list[str]:
 
 
 @st.cache_data(ttl=600)
+def count_faq() -> int:
+    """배너에 띄울 전체 질문 수."""
+    return int(read_sql("SELECT COUNT(*) AS n FROM FAQ")["n"].iloc[0])
+
+
+@st.cache_data(ttl=600)
 def load_faq(keyword: str, category: str) -> pd.DataFrame:
     like = f"%{keyword}%"
     if category != "전체":
@@ -71,19 +75,36 @@ def load_faq(keyword: str, category: str) -> pd.DataFrame:
     )
 
 
+total_faq = 0
 if config.is_db_configured():
     try:
         categories = load_categories()
+        total_faq = count_faq()
     except Exception:  # noqa: BLE001 - DB가 죽어도 검색창은 그려준다
         categories = SAMPLE_CATEGORIES
 else:
     categories = SAMPLE_CATEGORIES
 
-col_kw, col_cat = st.columns([3, 1])
-with col_kw:
-    keyword = st.text_input("🔎 키워드로 검색 (예: 과태료, 견인, 이의신청)")
-with col_cat:
-    category = st.selectbox("카테고리", ["전체"] + categories)
+with HERO_SLOT:
+    chips = [f"주제 <b>{len(categories)}</b>가지"]
+    if total_faq:
+        chips.insert(0, f"질문 <b>{total_faq:,}</b>개")
+    hero(
+        MARK_CHAT,
+        "무엇이 궁금하세요?",
+        "단속 기준·과태료·이의신청까지, 자주 묻는 질문을 한곳에 모았어요.",
+        chips=chips,
+    )
+
+keyword = st.text_input(
+    "키워드 검색",
+    placeholder="궁금한 낱말을 넣어보세요 — 과태료, 견인, 이의신청…",
+    label_visibility="collapsed",
+)
+# 셀렉트박스는 열어봐야 뭐가 있는지 안다. 주제가 9개뿐이라 전부 펼쳐두면
+# "이런 것도 있구나" 하고 눌러보게 된다.
+picked = st.pills("주제", categories, key="faq_category")
+category = picked or "전체"
 
 
 def _filter_sample(df: pd.DataFrame) -> pd.DataFrame:
@@ -106,16 +127,20 @@ else:
         result = _filter_sample(SAMPLE_FAQ)
 
 if result.empty:
-    st.warning(
-        "검색 결과가 없습니다. "
-        "FAQ 데이터를 적재하려면 `uv run python loaders/load_all.py --only FAQ` 를 실행하세요."
+    empty_state(
+        "chat",
+        "찾는 답이 없네요",
+        "다른 키워드로 검색하거나 카테고리를 '전체'로 바꿔보세요.",
     )
 else:
-    st.caption(f"총 {len(result)}건")
+    st.caption(
+        f"{category} · 총 {len(result)}건" if category != "전체" else f"총 {len(result)}건"
+    )
     for _, row in result.iterrows():
-        with st.expander(f"**[{row['category']}]** {row['question']}"):
+        with st.expander(row["question"], icon=":material/help:"):
+            st.badge(row["category"], color="orange")
             st.write(row["answer"])
-            st.caption(f"📎 출처: {row['source']}")
+            if row["source"]:
+                st.caption(f"출처 · {row['source']}")
 
-st.divider()
-st.caption("🔀 개별 민원 사례는 사이드바의 '민원 게시판' 페이지에서 확인하세요.")
+st.caption("개별 민원 사례는 왼쪽 **민원 사례** 에서 확인하세요.")

@@ -19,14 +19,20 @@ _HTML = """
 </div>
 """
 
+# 색은 common/ui.py 의 브랜드 팔레트(BRAND #D14314)와 맞춘다.
+# 컴포넌트는 iframe 안이라 앱 CSS가 닿지 않아 여기서 직접 지정해야 한다.
 _CSS = """
 .geo button {
-  width: 100%; padding: 8px 12px; border-radius: 10px;
-  border: 1px solid #4361ee; background: #fff; color: #4361ee;
-  font-weight: 600; cursor: pointer;
+  width: 100%; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid #D14314; background: #fff; color: #D14314;
+  font-weight: 700; cursor: pointer;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
 }
-.geo button:hover { background: #4361ee; color: #fff; }
-.geo #status { margin-top: 6px; font-size: 12px; color: #6b7280; min-height: 16px; }
+.geo button:hover {
+  background: #D14314; color: #fff;
+  box-shadow: 0 4px 12px rgba(209, 67, 20, .25);
+}
+.geo #status { margin-top: 6px; font-size: 12px; color: #6B625C; min-height: 16px; }
 """
 
 _JS = """

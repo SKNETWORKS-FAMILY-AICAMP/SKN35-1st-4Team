@@ -27,7 +27,7 @@ EXPECTED = [
     "ENFORCEMENT_HISTORY",
     "CCTV_INFO",
     "FAQ",
-    "FAQ2",
+    "COMPLAIN",  # 민원 게시판 (예전 이름 FAQ2)
     "USERS",
     "PARKING_LOG",
 ]

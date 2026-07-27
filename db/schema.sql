@@ -65,8 +65,10 @@ CREATE TABLE IF NOT EXISTS FAQ (
     source   VARCHAR(255)
 );
 
--- 5-2. FAQ2 (은미 / 연주)
-CREATE TABLE IF NOT EXISTS FAQ2 (
+-- 5-2. 민원 게시판 (연주/은미 - 종로구 공개 상담민원)
+-- 예전 이름은 FAQ2 였는데 jem 브랜치에서 complain 으로 바꿨다.
+-- pages/5_민원_게시판.py 와 loaders 가 모두 이 이름을 쓴다.
+CREATE TABLE IF NOT EXISTS complain (
     faq2_id  INT AUTO_INCREMENT PRIMARY KEY,
     q_title  VARCHAR(100) NOT NULL,
     q_writer VARCHAR(10) NOT NULL,
@@ -74,8 +76,7 @@ CREATE TABLE IF NOT EXISTS FAQ2 (
     question TEXT NOT NULL,
     a_depart VARCHAR(50) NOT NULL,
     a_date   DATETIME NOT NULL,
-    answer   TEXT NOT NULL,
-    source   VARCHAR(255)  -- 출처url
+    answer   TEXT NOT NULL
 );
 
 -- 6. 회원 정보
@@ -108,7 +109,7 @@ SELECT * FROM ENFORCEMENT_HISTORY;
 SELECT * FROM CCTV_INFO;
 SELECT * FROM PARKING_LOT;
 SELECT * FROM FAQ;
-SELECT * FROM FAQ2;
+SELECT * FROM complain;
 SELECT * FROM USERS;
 SELECT * FROM PARKING_LOG;
 

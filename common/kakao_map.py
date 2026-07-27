@@ -18,7 +18,7 @@ import json
 
 import pandas as pd
 
-DEFAULT_COLOR = "#4361ee"
+DEFAULT_COLOR = "#3B5BDB"  # common/ui.py BLUE
 
 # 카테고리별 마커 아이콘 (category_icons 인자에 넣어서 쓴다).
 # 인라인 SVG라 외부 이미지 요청이 없고, 흰색으로 그려져 마커 배경색 위에 얹힌다.
@@ -79,6 +79,7 @@ def build_map_html(
     level: int = 6,
     height: int = 600,
     polygons: list[dict] | None = None,
+    blobs: list[dict] | None = None,
     category_icons: dict[str, str] | None = None,
     pulse_categories: set[str] | None = None,
     focus: dict | None = None,
@@ -93,6 +94,12 @@ def build_map_html(
         {"path": [[위도, 경도], ...], "color": "#e63946", "opacity": 0.35,
          "name": "표시명", "info": "말풍선 내용"}
     형태이고, 넘기지 않으면 기존 호출부(CCTV 지도 등)와 동작이 완전히 같다.
+
+    blobs는 같은 구역 데이터를 사각형 대신 '번지는 원'으로 그린다. 각 항목은
+        {"lat":.., "lng":.., "radius_m":90, "color":"#e63946", "opacity":0.4,
+         "name":.., "info":.., "count":.., "pulse": False}
+    격자 사각형은 도시 블록처럼 보여 헷갈리는데, 원은 인접한 것끼리 겹쳐
+    열지도처럼 읽힌다. pulse가 True인 것(가장 뜨거운 구역)은 숨쉬듯 커졌다 작아진다.
 
     category_icons는 특정 카테고리의 마커를 원형 점 대신 아이콘으로 그린다.
     예) category_icons={"단속 CCTV": ICON_CCTV}
@@ -113,6 +120,7 @@ def build_map_html(
     draggable_category = draggable_category or ""
     focus_json = json.dumps(focus or None, ensure_ascii=False)
     polygons_json = json.dumps(polygons or [], ensure_ascii=False)
+    blobs_json = json.dumps(blobs or [], ensure_ascii=False)
 
     # 마커 데이터를 JSON으로 한 번에 넘긴다 (행별 f-string 이스케이프 문제 방지)
     markers = []
@@ -310,11 +318,53 @@ def build_map_html(
 
             var markers = {markers_json};
             var polygons = {polygons_json};
+            var blobs = {blobs_json};
             var openBubble = null;
             var dragging = false;
             var focusRing = null;
 
-            // 구역 색칠 (단속 다발구역 등). 마커보다 먼저 그려 마커가 위에 오게 한다.
+            // 단속 다발구역 히트 블롭. 마커보다 먼저 그려 마커가 위에 오게 한다.
+            blobs.forEach(function(b) {{
+                var circle = new kakao.maps.Circle({{
+                    center: new kakao.maps.LatLng(b.lat, b.lng),
+                    radius: b.radius_m,
+                    strokeWeight: 0,
+                    fillColor: b.color,
+                    fillOpacity: b.opacity
+                }});
+                circle.setMap(map);
+
+                // 가장 뜨거운 구역은 숨쉬듯 반지름이 오르내린다
+                if (b.pulse) {{
+                    var t = 0;
+                    setInterval(function() {{
+                        t += 0.08;
+                        circle.setRadius(b.radius_m * (1 + 0.18 * Math.sin(t)));
+                    }}, 60);
+                }}
+
+                kakao.maps.event.addListener(circle, 'mouseover', function() {{
+                    circle.setOptions({{ fillOpacity: Math.min(b.opacity + 0.25, 0.92) }});
+                }});
+                kakao.maps.event.addListener(circle, 'mouseout', function() {{
+                    circle.setOptions({{ fillOpacity: b.opacity }});
+                }});
+                kakao.maps.event.addListener(circle, 'click', function(mouseEvent) {{
+                    if (openBubble) openBubble.setMap(null);
+                    var html = '<div class="bubble">'
+                        + '<div class="title">단속 다발구역</div>'
+                        + '<span class="cat" style="background:' + b.color + '">누적 '
+                        + b.count.toLocaleString() + '건</span><br/>'
+                        + '<span class="info">' + b.info + '</span>'
+                        + '</div>';
+                    openBubble = new kakao.maps.CustomOverlay({{
+                        position: mouseEvent.latLng, content: html, yAnchor: 1.35, zIndex: 20
+                    }});
+                    openBubble.setMap(map);
+                }});
+            }});
+
+            // 구역 색칠 (사각 격자를 쓸 때). 마커보다 먼저 그려 마커가 위에 오게 한다.
             polygons.forEach(function(p) {{
                 var path = p.path.map(function(pt) {{
                     return new kakao.maps.LatLng(pt[0], pt[1]);
@@ -441,10 +491,10 @@ def build_map_html(
                     center: new kakao.maps.LatLng(focus.lat, focus.lng),
                     radius: focus.radius_m,
                     strokeWeight: 2,
-                    strokeColor: focus.color || '#4361ee',
+                    strokeColor: focus.color || '#3B5BDB',
                     strokeOpacity: 0.85,
                     strokeStyle: 'solid',
-                    fillColor: focus.color || '#4361ee',
+                    fillColor: focus.color || '#3B5BDB',
                     fillOpacity: 0.10
                 }});
                 focusRing.setMap(map);
