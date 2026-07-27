@@ -28,21 +28,49 @@ from dotenv import load_dotenv
 
 load_dotenv()  # .env 파일을 환경변수로 로드
 
-# ── 로컬 MySQL (DBeaver로 관리) ────────────────────────────────
-MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
-MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
-MYSQL_USER = os.getenv("MYSQL_USER", "root")
-MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
-MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "")
+
+def _setting(*names: str, default: str = "") -> str:
+    """설정값을 여러 이름으로 찾아본다.
+
+    1) 환경변수 / .env  — 로컬 개발
+    2) st.secrets       — Streamlit Community Cloud 배포
+                          (Cloud는 시크릿을 환경변수로 넣어주지 않는다)
+
+    이름을 여러 개 받는 이유: .env 키를 MYSQL_HOST 로 적기도 하고
+    TiDB 콘솔이 알려주는 DB_HOST 로 적기도 해서 둘 다 인식되게 했다.
+    """
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+
+    try:  # streamlit이 없는 환경(수집 스크립트 단독 실행)에서도 죽지 않게
+        import streamlit as st
+
+        for name in names:
+            if name in st.secrets:
+                return str(st.secrets[name])
+    except Exception:  # noqa: BLE001
+        pass
+
+    return default
+
+
+# ── DB (로컬 MySQL 또는 TiDB Cloud) ────────────────────────────
+MYSQL_HOST = _setting("MYSQL_HOST", "DB_HOST")
+MYSQL_PORT = int(_setting("MYSQL_PORT", "DB_PORT", default="3306"))
+MYSQL_USER = _setting("MYSQL_USER", "DB_USERNAME", "DB_USER")
+MYSQL_PASSWORD = _setting("MYSQL_PASSWORD", "DB_PASSWORD")
+MYSQL_DATABASE = _setting("MYSQL_DATABASE", "DB_DATABASE", "DB_NAME")
 
 # ── 지금 사용하는 API 키 ───────────────────────────────────────
-KAKAO_JS_KEY = os.getenv("KAKAO_JS_KEY", "")  # 지도 표시 (JavaScript 키)
-KAKAO_REST_KEY = os.getenv("KAKAO_REST_KEY", "")  # 주소 검색/지오코딩 (REST API 키)
-DATA_GO_KR_API_KEY = os.getenv("DATA_GO_KR_API_KEY", "")
+KAKAO_JS_KEY = _setting("KAKAO_JS_KEY")  # 지도 표시 (JavaScript 키)
+KAKAO_REST_KEY = _setting("KAKAO_REST_KEY")  # 주소 검색/지오코딩 (REST API 키)
+DATA_GO_KR_API_KEY = _setting("DATA_GO_KR_API_KEY")
 
 # ── 나중에 필요해지면 .env에 추가해서 쓰는 키 (없어도 앱은 동작) ──
 # 서울 열린데이터광장(data.seoul.go.kr) - 종원 담당 CCTV Open API를 쓸 경우 필요
-SEOUL_OPENAPI_KEY = os.getenv("SEOUL_OPENAPI_KEY", "")
+SEOUL_OPENAPI_KEY = _setting("SEOUL_OPENAPI_KEY")
 
 
 def is_db_configured() -> bool:

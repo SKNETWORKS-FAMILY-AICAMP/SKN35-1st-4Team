@@ -21,3 +21,6 @@ data/cleaned/*.csv
 # 민원 게시판 데이터도 저장소에 포함 (연주/은미)
 !data/cleaned/complain_faq2_result.csv
 uv.lock
+
+# Streamlit 시크릿 (DB 비밀번호 등) - 절대 커밋 금지
+.streamlit/secrets.toml

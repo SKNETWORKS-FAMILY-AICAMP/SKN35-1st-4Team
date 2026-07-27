@@ -40,11 +40,24 @@ def get_engine() -> Engine:
 
     # TiDB Cloud Serverless는 SSL이 필수다. 호스트만 보고 자동으로 켠다
     # (.env의 MYSQL_HOST를 TiDB 주소로 바꾸기만 하면 코드 수정이 필요 없다).
-    connect_args = {}
+    #
+    # PyMySQL은 ssl_mode 같은 키를 모른다. 서버 인증서를 검증하려면
+    # CA 번들 경로를 직접 넘겨야 한다. certifi를 쓰면 OS와 무관하게 동작한다.
+    connect_args: dict = {}
     if "tidbcloud.com" in config.MYSQL_HOST:
-        connect_args["ssl"] = {"ssl_mode": "VERIFY_IDENTITY"}
+        import certifi
 
-    return create_engine(url, connect_args=connect_args, pool_recycle=280)
+        connect_args = {
+            "ssl": {"ca": certifi.where()},
+            "ssl_verify_cert": True,
+            "ssl_verify_identity": True,
+        }
+
+    # 클라우드는 유휴 연결을 끊는다. 재사용 전에 살아있는지 확인하고,
+    # 오래된 연결은 미리 버린다 (pool_pre_ping / pool_recycle).
+    return create_engine(
+        url, connect_args=connect_args, pool_pre_ping=True, pool_recycle=280
+    )
 
 
 def read_sql(sql: str, params: dict | None = None) -> pd.DataFrame:
