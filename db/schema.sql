@@ -63,6 +63,18 @@ CREATE TABLE IF NOT EXISTS FAQ (
     source   VARCHAR(255)
 );
 
+CREATE TABLE IF NOT EXISTS FAQ2 (
+    faq2_id   INT AUTO_INCREMENT PRIMARY KEY,
+    q_title VARCHAR(100) NOT NULL,
+    q_writer varchar(10) NOT NULL,
+    q_date DATETIME NOT NULL,
+    question text NOT NULL,
+
+    a_depart varchar(50) NOT NULL,
+    a_date DATETIME NOT NULL,
+    answer TEXT NOT NULL
+);
+
 -- 6. 회원 정보 (로그인/개인화 기능용)
 CREATE TABLE IF NOT EXISTS USERS (
     user_id       INT AUTO_INCREMENT PRIMARY KEY,
