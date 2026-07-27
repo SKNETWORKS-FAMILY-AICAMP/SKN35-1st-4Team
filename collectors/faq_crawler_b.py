@@ -1,137 +1,248 @@
-"""
-[담당: 연주 또는 은미] FAQ 크롤링 B - 단속·견인·이의신청 계열 (BeautifulSoup + requests).
-
-데이터 소스 (실제로 열어보고 확인한 결과):
-1) 종로구시설관리공단 견인보관소 운영안내 (https://www.ijongno.co.kr/www/422)
-   -> 정적 단일 페이지. 견인료/보관료 표, 이의제기 절차, 관련법규 텍스트 확인됨.
-   -> FAQ 게시판이 아니라 안내문이라, 소제목(h4/h5) 단위로 잘라 Q&A로 변환.
-2) 새올전자민원창구/응답소/국민신문고
-   -> 로그인 필요한 실제 민원 시스템이라 자동 크롤링 대신 안내 링크로 수록(MINWON_LINKS).
-3) 서울시 고시공고 '주정차' 키워드 (일시적 단속 완화, 집중단속 기간 등)
-   -> seoul.go.kr 고시공고 게시판은 JS 렌더링이라 requests로는 본문이 비어 온다.
-      아래 crawl_gosi()에 Selenium 전환용 골격만 잡아뒀다 (TODO 참고).
-
-수집 결과는 FAQ 테이블의 category 컬럼에 견인/이의신청/고시공고로 태깅되어
-"FAQ - 단속·견인·이의신청" 페이지(pages/5_FAQ_단속견인.py)에서 사용한다.
-
-실행
-    uv run python collectors/faq_crawler_b.py
-    uv run python loaders/load_to_db.py --csv data/raw/faq_b_raw.csv --table FAQ --if-exists append
-"""
-
+import os
+import time
+from datetime import datetime
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    )
-}
+from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 
-# ---------------------------------------------------------------------------
-# 1) 종로구시설관리공단 견인보관소 운영안내 (정적 페이지, 크롤링 확인됨)
-# ---------------------------------------------------------------------------
-IJONGNO_TOWING_URL = "https://www.ijongno.co.kr/www/422"
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import Select
 
+# 1. 브라우저 옵션 설정
+options = Options()
+options.add_argument("--start-maximized")
 
-def crawl_ijongno_towing() -> list[dict]:
-    """운영안내 페이지를 소제목 단위로 잘라 질문=소제목, 답변=본문 형태로 변환."""
-    res = requests.get(IJONGNO_TOWING_URL, headers=HEADERS, timeout=10)
-    res.raise_for_status()
-    soup = BeautifulSoup(res.text, "html.parser")
+service = Service(ChromeDriverManager().install())
+driver = webdriver.Chrome(service=service, options=options)
+driver.get('https://jongno.eminwon.seoul.kr')
+wait = WebDriverWait(driver, 10)
 
-    rows: list[dict] = []
-    for h in soup.select("h4, h5"):
-        title = h.get_text(strip=True)
-        if not title:
+# 2. 메뉴 이동
+menu = wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "민원조회")))
+menu.click()
+
+public_menu = wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "공개 상담민원 조회")))
+public_menu.click()
+
+print("크롤링을 시작합니다.")
+
+search_types = ['제목', '내용']
+keywords = ['주정차', '주차', '정차', '견인']
+
+result_list = []
+seen_ids = set()  # 고유 목록번호 저장용 Set
+
+# 2016년 1월 1일 이후 게시글만 수집
+CUTOFF_DATE = datetime.strptime("2016-01-01", "%Y-%m-%d")
+
+# 3. 검색어별 순회
+for search in search_types:
+    for keyword in keywords:
+        select_element = wait.until(EC.presence_of_element_located((By.ID, 'pt_field')))
+        select = Select(select_element)
+        select.select_by_visible_text(search)
+
+        search_box = driver.find_element(By.ID, 'srhKeyword')
+        search_box.clear()
+        search_box.send_keys(keyword)
+
+        driver.find_element(By.ID, 'searchBtn').click()
+
+        try:
+            wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "table.table tbody tr")))
+        except:
+            print(f'[{search}] - "{keyword}": 검색 결과가 없습니다.')
             continue
 
-        body_parts: list[str] = []
-        for sib in h.find_next_siblings():
-            if sib.name in ("h4", "h5"):
+        page_num = 1
+        stop_current_search = False
+
+        # --- [페이지별 수집 루프] ---
+        while True:
+            time.sleep(1)
+            table_rows = driver.find_elements(By.CSS_SELECTOR, "table.table tbody tr")
+            print(f'\n[{search}] - "{keyword}" | {page_num}페이지 수집 중 (목록 {len(table_rows)}개)')
+
+            # 3-1. 답변완료 항목 인덱스 추출
+            target_indices = []
+            for idx, row in enumerate(table_rows):
+                try:
+                    status = row.find_element(By.CSS_SELECTOR, "td.td-answer").text.strip()
+                    if status == "답변완료":
+                        target_indices.append(idx)
+                except:
+                    pass
+
+            # 3-2. 항목별 수집
+            for idx in target_indices:
+                rows = driver.find_elements(By.CSS_SELECTOR, "table.table tbody tr")
+                if idx >= len(rows):
+                    break
+                
+                target_row = rows[idx]
+                
+                # 목록번호 및 작성일 사전 체크
+                try:
+                    tds = target_row.find_elements(By.TAG_NAME, "td")
+                    post_num = tds[0].text.strip()
+                    
+                    list_date_str = ""
+                    for td in tds:
+                        txt = td.text.strip()
+                        if len(txt) >= 10 and txt.count('-') == 2:
+                            list_date_str = txt[:10]
+                            break
+                    
+                    if list_date_str:
+                        list_date_dt = datetime.strptime(list_date_str, "%Y-%m-%d")
+                        if list_date_dt < CUTOFF_DATE:
+                            print(f"  └ [날짜 제한 초과: {list_date_str}] 2016년 이전 게시물이 등장하여 해당 검색어 수집을 종료합니다.")
+                            stop_current_search = True
+                            break
+
+                    if post_num and post_num in seen_ids:
+                        print(f"  └ [중복 건너뜀 - 목록번호: {post_num}]")
+                        continue
+                except:
+                    post_num = None
+
+                if stop_current_search:
+                    break
+
+                title_link = target_row.find_element(By.CSS_SELECTOR, "td.td-list a")
+
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", title_link)
+                time.sleep(0.3)
+                driver.execute_script("arguments[0].click();", title_link)
+
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'td[colspan="6"]')))
+
+                # --- [상세 페이지 데이터 추출] ---
+                q_title, q_writer, q_date = "", "", ""
+                a_depart, a_date = "", ""
+                detail_post_num = ""
+
+                ths = driver.find_elements(By.CSS_SELECTOR, '.bbs-table-view th')
+                for th in ths:
+                    th_text = th.text.strip()
+                    try:
+                        target_td = th.find_element(By.XPATH, 'following-sibling::td[1]').text.strip()
+                        if '목록번호' in th_text: detail_post_num = target_td
+                        elif '제목' in th_text: q_title = target_td
+                        elif '작성자' in th_text: q_writer = target_td
+                        elif '작성일' in th_text: q_date = target_td
+                        elif '담당부서' in th_text: a_depart = target_td
+                        elif '답변일자' in th_text: a_date = target_td
+                    except:
+                        pass
+
+                q_date_clean = q_date[:10] if len(q_date) >= 10 else ""
+                if q_date_clean:
+                    try:
+                        post_dt = datetime.strptime(q_date_clean, "%Y-%m-%d")
+                        if post_dt < CUTOFF_DATE:
+                            print(f"  └ [상세 날짜 제한: {q_date_clean}] 2016년 이전 게시물이므로 건너뜁니다.")
+                            stop_current_search = True
+                            driver.back()
+                            wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "table.table tbody tr")))
+                            break
+                    except:
+                        pass
+
+                final_post_num = detail_post_num if detail_post_num else post_num
+
+                if final_post_num and final_post_num in seen_ids:
+                    print(f"  └ [상세 중복 건너뜀 - 목록번호: {final_post_num}]")
+                else:
+                    if final_post_num:
+                        seen_ids.add(final_post_num)
+
+                    if not q_title:
+                        try: q_title = driver.find_element(By.CSS_SELECTOR, '.bbs-table-view td[colspan="3"]').text.strip()
+                        except: q_title = title_link.text.strip()
+
+                    colspan_tds = driver.find_elements(By.CSS_SELECTOR, 'td[colspan="6"]')
+                    
+                    if len(colspan_tds) > 0:
+                        raw_question = colspan_tds[0].text.strip()
+                        question = raw_question.split('※ 첨부파일')[0].strip()
+                    else:
+                        question = ""
+
+                    answer = colspan_tds[1].text.strip() if len(colspan_tds) > 1 else ""
+
+                    # source 컬럼 제외 후 DB 구조에 맞게 매핑
+                    data = {
+                        'q_title': q_title[:100],
+                        'q_writer': q_writer[:10],
+                        'q_date': q_date,
+                        'question': question,
+                        'a_depart': a_depart[:50],
+                        'a_date': a_date,
+                        'answer': answer
+                    }
+                    result_list.append(data)
+                    print(f"  (신규 수집 {len(result_list)}건 | 번호:{final_post_num}) 작성일: {q_date} | 제목: {q_title[:15]}...")
+
+                driver.back()
+                wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "table.table tbody tr")))
+
+                if page_num > 1:
+                    try:
+                        curr_page_btn = driver.find_element(By.XPATH, f"//div[@id='navigator']//a[contains(text(), '{page_num}') or @title='{page_num}페이지']")
+                        driver.execute_script("arguments[0].click();", curr_page_btn)
+                        time.sleep(1)
+                        wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "table.table tbody tr")))
+                    except:
+                        pass
+
+            if stop_current_search:
                 break
-            text = sib.get_text(" ", strip=True)
-            if text:
-                body_parts.append(text)
 
-        if body_parts:
-            category = "이의신청" if "이의" in title else "견인"
-            rows.append(
-                {
-                    "category": category,
-                    "question": title,
-                    "answer": " ".join(body_parts)[:2000],  # 표/법규 나열이 길어 상한을 둠
-                    "source": IJONGNO_TOWING_URL,
-                }
-            )
-    return rows
+            # 3-3. 다음 페이지 이동
+            try:
+                next_btn = driver.find_element(By.CSS_SELECTOR, 'a[title="다음 페이지"]')
+                href_attr = next_btn.get_attribute('href')
 
+                if not href_attr or 'void(0)' in href_attr:
+                    print(f"  └ [{search}] - '{keyword}': 마지막 페이지입니다.")
+                    break
 
-# ---------------------------------------------------------------------------
-# 2) 민원 접수 채널 - 자동 크롤링 대신 안내 링크로 수록
-# ---------------------------------------------------------------------------
-MINWON_LINKS: list[dict] = [
-    {
-        "category": "이의신청",
-        "question": "불법주정차 과태료에 이의신청/의견진술을 하고 싶어요.",
-        "answer": (
-            "종로구 새올전자민원창구(jongno.eminwon.seoul.kr), 서울시 전자민원 응답소"
-            "(eungdapso.seoul.go.kr), 국민신문고(epeople.go.kr) 중 편한 곳에서 온라인으로"
-            " 접수할 수 있습니다. 단속일로부터 의견진술은 20일 이내, 정식 고지서 수령 후"
-            " 이의신청은 60일 이내로 기한이 정해져 있으니 반드시 확인하세요."
-        ),
-        "source": "jongno.eminwon.seoul.kr / eungdapso.seoul.go.kr / epeople.go.kr",
-    },
-    {
-        "category": "고시공고",
-        "question": "일시적인 단속 완화(점심시간 단속유예 등) 정보는 어디서 확인하나요?",
-        "answer": (
-            "서울시 누리집(seoul.go.kr)과 서울교통정보센터(TOPIS, topis.seoul.go.kr)의"
-            " 고시공고 게시판에서 '주정차' 키워드로 확인할 수 있습니다. 예: 종로구는"
-            " 점심시간 주정차 단속유예 지역을 구 전역으로 확대했습니다 (2026.07 보도)."
-        ),
-        "source": "topis.seoul.go.kr / seoul.go.kr (고시공고)",
-    },
-]
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", next_btn)
+                time.sleep(0.3)
+                driver.execute_script("arguments[0].click();", next_btn)
 
+                page_num += 1
+                time.sleep(1)
+                wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "table.table tbody tr")))
 
-# ---------------------------------------------------------------------------
-# 3) 서울시 고시공고 '주정차' 키워드 (JS 렌더링 -> Selenium 필요)
-# ---------------------------------------------------------------------------
-def crawl_gosi() -> list[dict]:
-    """서울시 고시공고에서 '주정차' 키워드 공고를 수집 (TODO: Selenium 구현).
+            except Exception:
+                print(f"  └ [{search}] - '{keyword}': 다음 페이지 버튼이 없어 종료합니다.")
+                break
 
-    seoul.go.kr 고시공고는 requests로 요청하면 본문이 비어 오는 것을 확인했다.
-    구현할 때 순서:
-        1) selenium으로 고시공고 검색 페이지 열기 ('주정차' 검색)
-        2) driver.page_source를 BeautifulSoup에 넘겨 제목/날짜/링크 추출
-        3) {"category": "고시공고", "question": 제목, "answer": 요약, "source": 링크}
-           형태로 반환
-    참고 구현 패턴: 이전 스캐폴드의 region_rule_crawler.py (Selenium은 렌더링만,
-    파싱은 항상 BeautifulSoup에 넘기는 구조).
-    """
-    print("TODO: 서울시 고시공고 Selenium 크롤링 구현 예정 - 현재는 빈 목록 반환")
-    return []
+# 4. DataFrame 변환 및 최신순 정렬
+df = pd.DataFrame(result_list)
 
+df['q_date_dt'] = pd.to_datetime(df['q_date'], errors='coerce')
+df.sort_values(by='q_date_dt', ascending=False, inplace=True)
+df.drop(columns=['q_date_dt'], inplace=True)
 
-def crawl_all() -> pd.DataFrame:
-    rows: list[dict] = []
+df.insert(0, 'faq2_id', range(1, len(df) + 1))
 
-    try:
-        towing = crawl_ijongno_towing()
-        print(f"[ijongno.co.kr] {len(towing)}건 수집")
-        rows.extend(towing)
-    except Exception as exc:  # noqa: BLE001
-        print(f"[ijongno.co.kr] 수집 실패: {exc}")
+# 5. CSV 저장
+output_dir = os.path.join('data', 'cleaned')
+os.makedirs(output_dir, exist_ok=True)
 
-    rows.extend(MINWON_LINKS)
-    rows.extend(crawl_gosi())
-    return pd.DataFrame(rows)
+csv_filename = os.path.join(output_dir, 'complain_faq2_result.csv')
+df.to_csv(csv_filename, index=False, encoding='utf-8-sig')
 
+print(f"\n2016년 1월 1일 이후 데이터 크롤링이 완료되었습니다!")
+print(f"최종 수집 건수: {len(df)}건 (source 컬럼 제외됨)")
+print(f"저장 파일: {csv_filename}")
 
-if __name__ == "__main__":
-    df = crawl_all()
-    df.to_csv("data/raw/faq_b_raw.csv", index=False, encoding="utf-8-sig")
-    print(f"총 {len(df)}건 수집 완료 -> data/raw/faq_b_raw.csv")
+input("엔터를 누르면 종료합니다.")

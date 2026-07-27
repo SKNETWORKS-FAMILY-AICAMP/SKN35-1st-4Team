@@ -83,3 +83,49 @@ def browser_position(key: str = "geolocation") -> dict | None:
 
 def clear_position() -> None:
     st.session_state.pop(SESSION_KEY, None)
+
+
+# ---------------------------------------------------------------------------
+# 지도 마커 드래그 -> 파이썬
+# ---------------------------------------------------------------------------
+# 지도는 st.iframe 안에서 그려져서 파이썬과 직접 통신할 수 없다.
+# 마커를 놓으면 iframe이 부모 창으로 postMessage 를 보내고(common/kakao_map.py),
+# 여기 있는 보이지 않는 컴포넌트가 그 메시지를 받아 파이썬으로 넘긴다.
+_BRIDGE_JS = """
+export default function (component) {
+  const { setTriggerValue } = component
+
+  // 컴포넌트는 rerun마다 다시 실행되므로 이전 리스너를 먼저 걷어낸다
+  if (window.__kakaoDragBridge) {
+    window.removeEventListener("message", window.__kakaoDragBridge)
+  }
+
+  window.__kakaoDragBridge = (event) => {
+    const data = event.data
+    if (!data || data.type !== "kakao-map-drag") return
+    if (typeof data.lat !== "number" || typeof data.lng !== "number") return
+    setTriggerValue("dragged", { lat: data.lat, lng: data.lng })
+  }
+
+  window.addEventListener("message", window.__kakaoDragBridge)
+}
+"""
+
+_drag_bridge = st.components.v2.component(
+    "kakao_map_drag_bridge", html="", js=_BRIDGE_JS
+)
+
+
+def map_drag_position(key: str = "map_drag") -> dict | None:
+    """지도에서 마커를 끌어 옮겼으면 그 좌표를 돌려준다 (없으면 None).
+
+    화면에 아무것도 그리지 않는다. 사이드바 위젯보다 먼저 호출해야
+    드래그 결과가 같은 실행에서 위도·경도 입력칸에도 반영된다.
+    """
+    result = _drag_bridge(key=key, on_dragged_change=lambda: None)
+    if not result.dragged:
+        return None
+
+    position = {"lat": result.dragged["lat"], "lng": result.dragged["lng"], "accuracy": None}
+    st.session_state[SESSION_KEY] = position
+    return position

@@ -9,7 +9,6 @@ __pycache__/
 # Claude / 에이전트 작업 기록
 .claude/
 .agents/
-
 # 로컬 회원/주차기록 DB (MySQL 미설정 시 폴백)
 data/app.db
 
@@ -19,3 +18,6 @@ data/cleaned/*.csv
 ## ------------------
 # 단, 주차장 목록은 저장소에 포함한다 (이 파일 하나로 주차장 검색이 바로 동작)
 !data/cleaned/parking_lot.csv
+# 민원 게시판 데이터도 저장소에 포함 (연주/은미)
+!data/cleaned/complain_faq2_result.csv
+uv.lock

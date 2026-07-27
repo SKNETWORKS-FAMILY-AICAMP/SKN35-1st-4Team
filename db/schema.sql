@@ -84,17 +84,17 @@ CREATE TABLE IF NOT EXISTS FAQ (
     answer   TEXT NOT NULL,
     source   VARCHAR(255)
 );
--- 5-1. FAQ (은미: 이용안내 계열 / 연주: 단속·견인·이의신청 계열 - 같은 테이블 공유)
+-- 5-2. 민원 게시판 (연주/은미 - 종로구 공개 상담민원)
 CREATE TABLE IF NOT EXISTS FAQ2 (
     faq2_id   INT AUTO_INCREMENT PRIMARY KEY,
     q_title VARCHAR(100) NOT NULL,
     q_writer varchar(10) NOT NULL,
     q_date DATETIME NOT NULL,
-    question VARCHAR(500) NOT NULL,
+    question text NOT NULL,
+
     a_depart varchar(50) NOT NULL,
     a_date DATETIME NOT NULL,
-    answer   TEXT NOT NULL,
-    source   VARCHAR(255)       # 출처url
+    answer TEXT NOT NULL
 );
 
 -- 6. 회원 정보 (로그인/개인화 기능용)

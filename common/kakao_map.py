@@ -37,6 +37,14 @@ ICON_MY_LOCATION = (
     "</svg>"
 )
 
+ICON_CAR = (
+    '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">'
+    '<path d="M5 11l1.6-4.2A2 2 0 0 1 8.5 5.5h7a2 2 0 0 1 1.9 1.3L19 11z"/>'
+    '<rect x="3" y="11" width="18" height="6" rx="1.8"/>'
+    '<circle cx="7.5" cy="17.6" r="1.7"/><circle cx="16.5" cy="17.6" r="1.7"/>'
+    "</svg>"
+)
+
 ICON_CCTV = (
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">'
     '<rect x="1.5" y="7" width="13" height="6.5" rx="1.5"/>'
@@ -72,6 +80,9 @@ def build_map_html(
     height: int = 600,
     polygons: list[dict] | None = None,
     category_icons: dict[str, str] | None = None,
+    pulse_categories: set[str] | None = None,
+    focus: dict | None = None,
+    draggable_category: str | None = None,
 ) -> str:
     """마커(+선택적 폴리곤)가 찍힌 카카오맵 HTML을 문자열로 반환.
 
@@ -86,9 +97,21 @@ def build_map_html(
     category_icons는 특정 카테고리의 마커를 원형 점 대신 아이콘으로 그린다.
     예) category_icons={"단속 CCTV": ICON_CCTV}
     값은 신뢰할 수 있는 마크업만 넣어야 한다 (innerHTML로 삽입된다).
+
+    pulse_categories에 든 카테고리의 마커는 물결(펄스) 링이 퍼진다 (내 위치 등).
+    focus={"lat":.., "lng":.., "radius_m":100} 를 주면 그 반경을 원으로 그리고
+    숨쉬듯 크기가 오르내린다 — 판정 범위가 어디까지인지 눈으로 보인다.
+
+    draggable_category의 마커는 마우스로 끌어서 옮길 수 있다. 놓는 순간
+    부모 창으로 {type:'kakao-map-drag', lat, lng} 를 postMessage 한다.
+    지도는 iframe 안이라 파이썬과 직접 통신할 수 없어서, 앱 쪽에서 이 메시지를
+    받아주는 다리가 필요하다 (common/geolocation.py 의 map_drag_position).
     """
     category_colors = category_colors or {}
     category_icons = category_icons or {}
+    pulse_categories = pulse_categories or set()
+    draggable_category = draggable_category or ""
+    focus_json = json.dumps(focus or None, ensure_ascii=False)
     polygons_json = json.dumps(polygons or [], ensure_ascii=False)
 
     # 마커 데이터를 JSON으로 한 번에 넘긴다 (행별 f-string 이스케이프 문제 방지)
@@ -107,6 +130,9 @@ def build_map_html(
                 "color": category_colors.get(row.get("category", ""), DEFAULT_COLOR),
                 "icon": category_icons.get(row.get("category", ""), ""),
                 "details": _details(row.get("details")),
+                "pulse": row.get("category", "") in pulse_categories,
+                "draggable": bool(draggable_category)
+                and row.get("category", "") == draggable_category,
             }
         )
     markers_json = json.dumps(markers, ensure_ascii=False)
@@ -137,6 +163,37 @@ def build_map_html(
                 cursor: pointer;
                 box-sizing: content-box;
             }}
+
+            /* 마커 등장 애니메이션 — 위에서 톡 떨어진다 */
+            @keyframes pin-drop {{
+                from {{ opacity: 0; transform: translateY(-16px) scale(.55); }}
+                60%  {{ opacity: 1; transform: translateY(2px) scale(1.06); }}
+                to   {{ opacity: 1; transform: none; }}
+            }}
+            /* 내 위치에서 퍼져나가는 물결 */
+            @keyframes pin-ring {{
+                0%   {{ transform: scale(.7); opacity: .5; }}
+                70%  {{ opacity: 0; }}
+                100% {{ transform: scale(3); opacity: 0; }}
+            }}
+
+            .pin {{
+                position: relative;
+                animation: pin-drop .5s cubic-bezier(.22,1,.36,1) both;
+                transition: transform .15s ease, box-shadow .15s ease;
+            }}
+            .pin:hover {{
+                transform: scale(1.3);
+                box-shadow: 0 4px 14px rgba(0,0,0,.45);
+                z-index: 30;
+            }}
+            .pin.pulse::before, .pin.pulse::after {{
+                content: ''; position: absolute; inset: -3px;
+                border-radius: inherit; background: currentColor;
+                animation: pin-ring 2.2s ease-out infinite;
+                pointer-events: none; z-index: -1;
+            }}
+            .pin.pulse::after {{ animation-delay: 1.1s; }}
 
             /* 아이콘 마커 (CCTV 등) */
             .pin.icon {{
@@ -254,6 +311,8 @@ def build_map_html(
             var markers = {markers_json};
             var polygons = {polygons_json};
             var openBubble = null;
+            var dragging = false;
+            var focusRing = null;
 
             // 구역 색칠 (단속 다발구역 등). 마커보다 먼저 그려 마커가 위에 오게 한다.
             polygons.forEach(function(p) {{
@@ -293,15 +352,64 @@ def build_map_html(
                 }});
             }});
 
-            function drawMarker(m, pos) {{
+            function drawMarker(m, pos, index) {{
                 // 원형 커스텀 마커
                 var pinEl = document.createElement('div');
                 pinEl.className = m.icon ? 'pin icon' : 'pin';
+                if (m.pulse) pinEl.classList.add('pulse');
                 pinEl.style.background = m.color;
+                // 마커가 많아도 전부 순차 등장하면 느리므로 20개 주기로 끊는다
+                pinEl.style.animationDelay = ((index % 20) * 30) + 'ms';
                 if (m.icon) pinEl.innerHTML = m.icon;
-                new kakao.maps.CustomOverlay({{
-                    position: pos, content: pinEl, map: map, yAnchor: 0.5
+                // clickable:true 가 없으면 마우스 이벤트가 오버레이를 통과해 지도로 빠진다
+                // (카카오맵 CustomOverlay 기본값이 false) -> 클릭도 드래그도 안 먹는다
+                var pinOverlay = new kakao.maps.CustomOverlay({{
+                    position: pos, content: pinEl, map: map, yAnchor: 0.5,
+                    clickable: true, zIndex: m.draggable ? 40 : 1
                 }});
+
+                // 끌어서 위치 옮기기 (CustomOverlay는 기본 드래그를 지원하지 않아 직접 구현)
+                if (m.draggable) {{
+                    pinEl.style.cursor = 'grab';
+                    pinEl.title = '끌어서 위치를 옮기세요';
+                    var dropped = pos;
+
+                    var mapEl = document.getElementById('map');
+
+                    pinEl.addEventListener('mousedown', function(e) {{
+                        e.preventDefault();
+                        dragging = true;
+                        pinEl.style.cursor = 'grabbing';
+                        map.setDraggable(false);   // 지도가 같이 끌려가지 않도록
+                    }});
+
+                    // 카카오의 map 'mousemove'는 쓸 수 없다. clickable 오버레이가 커서를
+                    // 잡고 있어서 지도 위 이동으로 인식되지 않기 때문이다.
+                    // 대신 DOM mousemove를 받아 화면 좌표를 위경도로 직접 변환한다.
+                    mapEl.addEventListener('mousemove', function(e) {{
+                        if (!dragging) return;
+                        var rect = mapEl.getBoundingClientRect();
+                        var point = new kakao.maps.Point(
+                            e.clientX - rect.left, e.clientY - rect.top
+                        );
+                        dropped = map.getProjection().coordsFromContainerPoint(point);
+                        pinOverlay.setPosition(dropped);
+                        if (focusRing) focusRing.setPosition(dropped);
+                    }});
+
+                    document.addEventListener('mouseup', function() {{
+                        if (!dragging) return;
+                        dragging = false;
+                        pinEl.style.cursor = 'grab';
+                        map.setDraggable(true);
+                        // 지도는 iframe이라 파이썬에 직접 못 넘긴다 -> 부모 창으로 알린다
+                        window.parent.postMessage({{
+                            type: 'kakao-map-drag',
+                            lat: dropped.getLat(),
+                            lng: dropped.getLng()
+                        }}, '*');
+                    }});
+                }}
 
                 // 클릭 시 말풍선 (하나만 열리도록 토글)
                 var rows = (m.details || []).map(function(d) {{
@@ -326,8 +434,32 @@ def build_map_html(
                 }});
             }}
 
-            markers.forEach(function(m) {{
-                drawMarker(m, new kakao.maps.LatLng(m.lat, m.lng));
+            // 판정 반경 — 숨쉬듯 커졌다 작아진다 (마커 드래그 시 같이 따라간다)
+            var focus = {focus_json};
+            if (focus) {{
+                focusRing = new kakao.maps.Circle({{
+                    center: new kakao.maps.LatLng(focus.lat, focus.lng),
+                    radius: focus.radius_m,
+                    strokeWeight: 2,
+                    strokeColor: focus.color || '#4361ee',
+                    strokeOpacity: 0.85,
+                    strokeStyle: 'solid',
+                    fillColor: focus.color || '#4361ee',
+                    fillOpacity: 0.10
+                }});
+                focusRing.setMap(map);
+
+                var tick = 0;
+                setInterval(function() {{
+                    tick += 1;
+                    var wave = Math.sin(tick / 8);            // -1 ~ 1
+                    focusRing.setRadius(focus.radius_m * (1 + wave * 0.06));
+                    focusRing.setOptions({{ fillOpacity: 0.10 + (wave + 1) * 0.035 }});
+                }}, 60);
+            }}
+
+            markers.forEach(function(m, i) {{
+                drawMarker(m, new kakao.maps.LatLng(m.lat, m.lng), i);
             }});
 
             // 지도 빈 곳 클릭 시 말풍선 닫기

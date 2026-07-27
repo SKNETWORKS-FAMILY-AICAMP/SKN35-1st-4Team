@@ -37,7 +37,14 @@ def get_engine() -> Engine:
         f"@{config.MYSQL_HOST}:{config.MYSQL_PORT}/{config.MYSQL_DATABASE}"
         "?charset=utf8mb4"
     )
-    return create_engine(url)
+
+    # TiDB Cloud Serverless는 SSL이 필수다. 호스트만 보고 자동으로 켠다
+    # (.env의 MYSQL_HOST를 TiDB 주소로 바꾸기만 하면 코드 수정이 필요 없다).
+    connect_args = {}
+    if "tidbcloud.com" in config.MYSQL_HOST:
+        connect_args["ssl"] = {"ssl_mode": "VERIFY_IDENTITY"}
+
+    return create_engine(url, connect_args=connect_args, pool_recycle=280)
 
 
 def read_sql(sql: str, params: dict | None = None) -> pd.DataFrame:

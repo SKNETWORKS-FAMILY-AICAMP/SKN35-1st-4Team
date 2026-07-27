@@ -22,9 +22,17 @@ import streamlit as st
 
 import config
 from common.geo import haversine_km
-from common.geolocation import browser_position, clear_position
-from common.kakao_map import ICON_CCTV, ICON_MY_LOCATION, ICON_PARKING, build_map_html
+from common.geolocation import browser_position, clear_position, map_drag_position
+from common.auth import current_user
+from common.kakao_map import (
+    ICON_CAR,
+    ICON_CCTV,
+    ICON_MY_LOCATION,
+    ICON_PARKING,
+    build_map_html,
+)
 from common.parking_data import load_parking_lots
+from common.parking_log import list_logs
 from common.recommend import (
     format_availability,
     format_fee,
@@ -33,20 +41,49 @@ from common.recommend import (
 )
 from common.risk_data import (
     assess_location,
+    distances_m,
+    expected_fine,
     build_density_grid,
+    hour_profile,
     load_cctv,
     load_hotspots,
+    load_slots,
     nearest_parking,
+    time_advice,
+    watch_detail,
 )
 from common.ui import apply_style, feature_card, hero, status_chip
 
 st.set_page_config(page_title="주정차 정보 조회 시스템", page_icon="🚗", layout="wide")
 apply_style()
+
+# 이 페이지 한정 여백 조정 — 지도를 최대한 위로 끌어올린다.
+# common/ui.py 의 hero()는 팀 공용이라 건드리지 않고, 여기서만 배너를 얇게 덮어쓴다.
+# (다른 페이지의 배너는 원래 크기 그대로다.)
+st.html(
+    """
+    <style>
+      /* 본문 상단 여백 축소 */
+      [data-testid="stMainBlockContainer"] { padding-top: 2.2rem; }
+
+      /* 배너를 한 줄짜리 띠로 */
+      .hero { padding: 13px 20px !important; margin-bottom: 12px !important;
+              border-radius: 14px !important; }
+      .hero h1 { display: inline; font-size: 1.15rem !important; margin: 0 !important; }
+      .hero p  { display: inline; font-size: .85rem !important; margin-left: 10px !important; }
+    </style>
+    """
+)
+
 hero(
     "🚗",
     "주정차 제한 정보 & 주변 주차장 안내",
     "주차장과 단속 다발구역·CCTV를 한 지도에서 보고, 지금 위치가 단속 위험 구역인지 확인하세요.",
 )
+
+# 지도를 맨 위에 두기 위해 자리만 먼저 잡아둔다.
+# 지도 내용은 필터·정렬·레이어 계산이 끝난 아래쪽에서 이 컨테이너에 채운다.
+map_slot = st.container()
 
 LAYER_COLOR = {
     "공영": "#2ec4b6",
@@ -54,6 +91,7 @@ LAYER_COLOR = {
     "단속 다발구역": "#e63946",
     "단속 CCTV": "#7209b7",
     "내 위치": "#4361ee",
+    "내 주차 기록": "#f72585",
 }
 LEVEL_ICON = {
     "위험": ":material/dangerous:",
@@ -61,6 +99,7 @@ LEVEL_ICON = {
     "기록 없음": ":material/check_circle:",
 }
 LEVEL_COLOR = {"위험": "red", "주의": "orange", "기록 없음": "green"}
+WATCH_COLOR = {"위험": "red", "주의": "orange", "낮음": "gray"}
 
 DEFAULT_DISTRICT = "종로구"
 
@@ -78,6 +117,11 @@ LANDMARKS = {
 all_lots, source_notes = load_parking_lots()
 hotspots, hotspot_note = load_hotspots()
 cctv, cctv_note = load_cctv()
+slots = load_slots()
+
+# 로그인한 사용자의 주차 기록 (비로그인이면 조회하지 않는다)
+user = current_user()
+my_logs = list_logs(user["user_id"]) if user else pd.DataFrame()
 source_notes = [*source_notes, hotspot_note, cctv_note]
 
 if all_lots.empty:
@@ -92,6 +136,12 @@ if all_lots.empty:
 # 자주 쓰는 것(위치·레이어·검색)만 펼쳐두고 나머지는 접는다.
 with st.sidebar:
     with st.expander("내 위치", expanded=True, icon=":material/my_location:"):
+        # 지도에서 마커를 끌어 옮겼으면 그 좌표를 먼저 반영한다
+        dragged = map_drag_position()
+        if dragged:
+            st.session_state["my_lat"] = dragged["lat"]
+            st.session_state["my_lng"] = dragged["lng"]
+
         position = browser_position()
         manual = st.toggle("좌표 직접 입력", value=False, key="manual_position")
 
@@ -122,6 +172,8 @@ with st.sidebar:
             layer_options.append("단속 CCTV")
         if not hotspots.empty:
             layer_options.append("단속 다발구역")
+        if not my_logs.empty:
+            layer_options.append("내 주차 기록")
 
         active_layers = st.pills(
             "표시할 레이어",
@@ -135,6 +187,7 @@ with st.sidebar:
         show_parking = "주차장" in active_layers
         show_cctv = "단속 CCTV" in active_layers
         show_area = "단속 다발구역" in active_layers
+        show_logs = "내 주차 기록" in active_layers
 
         missing = []
         if cctv.empty:
@@ -143,6 +196,8 @@ with st.sidebar:
             missing.append("다발구역 → `collectors/enforcement_history_api.py`")
         if missing:
             st.caption("아직 없는 데이터: " + " · ".join(missing))
+        if user is None:
+            st.caption("로그인하면 내 주차 기록도 지도에 표시됩니다.")
 
         if show_area:
             cell_m = st.select_slider(
@@ -152,9 +207,16 @@ with st.sidebar:
                 format_func=lambda v: f"{v}m",
                 key="cell_m",
             )
-            min_count = st.slider("칸당 최소 건수", 1, 10, 2, key="min_count")
+            top_ratio = st.select_slider(
+                "표시 범위",
+                options=[0.10, 0.25, 0.50, 1.00],
+                value=0.25,
+                format_func=lambda v: f"단속 상위 {v:.0%}" if v < 1 else "전체 구역",
+                key="top_ratio",
+                help="단속 건수가 많은 칸부터 몇 %까지 칠할지",
+            )
         else:
-            cell_m, min_count = 150, 2
+            cell_m, top_ratio = 150, 0.25
 
     with st.expander("검색 조건", expanded=True, icon=":material/filter_list:"):
         districts = sorted(d for d in all_lots["district"].dropna().unique() if d != "기타")
@@ -199,10 +261,90 @@ with st.sidebar:
         w_availability = st.slider("여유", 0.0, 1.0, 0.3, step=0.1, key="w_availability")
         w_fee = st.slider("요금", 0.0, 1.0, 0.2, step=0.1, key="w_fee")
 
-# ── 내 위치 단속 위험 판정 ────────────────────────────────────
-if position:
-    st.subheader("내 위치 단속 위험")
+# ── 과태료 팝업 ───────────────────────────────────────────────
+@st.dialog("여기 세우면 얼마?", width="small")
+def show_fine_dialog(fine: dict, cheapest: dict | None) -> None:
+    """예상 과태료를 크게 보여주고 합법 주차장 요금과 나란히 비교한다.
 
+    금액을 겁주는 장치가 아니라 '주차장이 훨씬 싸다'를 눈으로 보여주는 장치다.
+    """
+    st.html(
+        f"""
+        <style>
+        @keyframes fine-pop {{
+            0%   {{ transform: scale(.4) rotate(-8deg); opacity: 0; }}
+            60%  {{ transform: scale(1.15) rotate(3deg); opacity: 1; }}
+            100% {{ transform: scale(1) rotate(0); opacity: 1; }}
+        }}
+        @keyframes coin-fall {{
+            0%   {{ transform: translateY(-30px); opacity: 0; }}
+            30%  {{ opacity: 1; }}
+            100% {{ transform: translateY(90px); opacity: 0; }}
+        }}
+        .fine-wrap {{ text-align:center; padding: 10px 0 4px; position:relative; overflow:hidden; }}
+        .fine-amt {{
+            font-size: 46px; font-weight: 800; color:#e63946; letter-spacing:-1px;
+            animation: fine-pop .55s cubic-bezier(.22,1.2,.36,1) both;
+        }}
+        .fine-sub {{ color:#6b7280; font-size:13px; margin-top:2px; }}
+        .coin {{
+            position:absolute; top:0; font-size:20px;
+            animation: coin-fall 1.6s ease-in infinite;
+        }}
+        </style>
+        <div class="fine-wrap">
+          <span class="coin" style="left:12%; animation-delay:.0s">🪙</span>
+          <span class="coin" style="left:32%; animation-delay:.4s">💸</span>
+          <span class="coin" style="left:62%; animation-delay:.8s">🪙</span>
+          <span class="coin" style="left:84%; animation-delay:.2s">💸</span>
+          <div class="fine-amt">{fine["amount"]:,}원</div>
+          <div class="fine-sub">불법주정차 과태료 (승용차 일반 구역)</div>
+        </div>
+        """
+    )
+
+    if cheapest:
+        saving = fine["amount"] - cheapest["fee"]
+        st.success(
+            f"**{cheapest['name']}** 은(는) {cheapest['hours']:g}시간에 "
+            f"**{cheapest['fee']:,}원** · 도보 {cheapest['walk']}분\n\n"
+            f"주차장을 쓰면 **{saving:,}원** 아낍니다.",
+            icon=":material/savings:",
+        )
+
+    st.caption("구역별 과태료")
+    st.dataframe(
+        pd.DataFrame(
+            [{"구역": name, "과태료": amount, "설명": desc} for name, amount, desc in fine["table"]]
+        ),
+        column_config={"과태료": st.column_config.NumberColumn("과태료", format="%,d원")},
+        hide_index=True,
+    )
+    st.caption(fine["note"])
+
+
+# ── 내 위치 단속 위험 판정 ────────────────────────────────────
+# 위치를 안 잡으면 이 블록이 통째로 안 보여서 기능이 있는지도 모른다.
+# 그래서 미설정일 때도 안내 카드와 "여기로 미리 보기"를 띄운다.
+st.subheader("내 위치 단속 위험")
+
+if position is None:
+    with st.container(border=True):
+        st.markdown("**위치를 정하면 그 자리의 단속 위험을 판정합니다.**")
+        st.caption(
+            "사이드바 → 내 위치 에서 `현재 위치 가져오기`를 누르거나 좌표를 직접 입력하세요. "
+            "GPS는 브라우저 보안 정책상 localhost·HTTPS에서만 동작합니다."
+        )
+        preview = st.selectbox(
+            "또는 아래 지점으로 바로 확인해 보세요",
+            ["선택 안 함", *LANDMARKS],
+            key="preview_spot",
+        )
+        if preview != "선택 안 함":
+            spot = LANDMARKS[preview]
+            position = {"lat": spot[0], "lng": spot[1], "accuracy": None}
+
+if position:
     if hotspots.empty and cctv.empty:
         st.warning(
             "단속 이력·CCTV 데이터가 아직 없어 판정할 수 없습니다. "
@@ -213,6 +355,23 @@ if position:
         risk = assess_location(
             position["lat"], position["lng"], hotspots, cctv, radius_m=risk_radius_m
         )
+
+        # 과태료 팝업에서 "주차장이 이만큼 싸다"를 보여주기 위한 최저가 후보
+        cheapest_alt = None
+        near_lots = nearest_parking(position["lat"], position["lng"], all_lots, limit=5)
+        if not near_lots.empty:
+            priced = rank_parking_lots(
+                near_lots.assign(distance_km=near_lots["distance_m"] / 1000),
+                radius_km=1.0, hours=hours, only_open=False,
+            )
+            if not priced.empty:
+                best = priced.nsmallest(1, "estimated_fee").iloc[0]
+                cheapest_alt = {
+                    "name": str(best["parking_name"]),
+                    "fee": int(best["estimated_fee"]),
+                    "hours": hours,
+                    "walk": max(1, round(float(best["distance_m"]) / 70)),
+                }
 
         # 전체 폭 경고창 대신 카드 하나로 묶는다 (등급 + 근거 수치가 한 덩어리로 읽힌다)
         with st.container(border=True):
@@ -230,6 +389,15 @@ if position:
                         f"가장 가까운 다발구역 · {risk['nearest_hotspot']} "
                         f"({risk['nearest_hotspot_m']:,.0f}m)"
                     )
+
+                fine = expected_fine(risk["level"])
+                if fine["show"] and st.button(
+                    f"과태료 {fine['amount']:,}원 확인",
+                    icon=":material/receipt_long:",
+                    type="primary",
+                    key="fine_button",
+                ):
+                    show_fine_dialog(fine, cheapest_alt)
 
             with stats:
                 # 칸이 좁아 라벨·값을 짧게 쓰고 자세한 설명은 help(물음표)로 뺀다
@@ -249,10 +417,54 @@ if position:
                     help="브라우저가 알려준 위치 오차 (직접 입력이면 '수동')", border=True,
                 )
 
-        if risk["level"] == "위험":
+        # 감시 유형별 상세 — CCTV(상시 촬영)와 순찰 단속은 대응이 다르다
+        watches = watch_detail(
+            position["lat"], position["lng"], hotspots, cctv, radius_m=risk_radius_m
+        )
+        if watches:
+            watch_cols = st.columns(len(watches))
+            for col, watch in zip(watch_cols, watches):
+                with col, st.container(border=True):
+                    st.markdown(f"{watch['icon']} **{watch['type']}**")
+                    st.badge(watch["level"], color=WATCH_COLOR[watch["level"]])
+                    st.caption(watch["summary"])
+                    st.write(watch["action"])
+
+        # 시간대별 단속 패턴 — "언제까지 괜찮나"에 답한다
+        profile = hour_profile(
+            position["lat"], position["lng"], slots, radius_m=risk_radius_m
+        )
+        advice = time_advice(profile)
+        if advice:
+            st.markdown("**이 구역 단속 집중 시간대**")
+
+            # 시간대는 "언제 피하면 되나"가 아니라 "얼마나 자주 단속되는 곳인가"를
+            # 보여주는 근거다. 뜸한 시간대를 안전하다고 말하지 않는다.
+            if advice["is_busy"]:
+                st.error(
+                    f"지금({advice['now_hour']}시)이 이 구역 단속이 가장 몰리는 시간대입니다 "
+                    f"— 누적 {advice['now_count']:,}건. 즉시 주차장을 이용하세요.",
+                    icon=":material/priority_high:",
+                )
+            else:
+                st.caption(
+                    f"이 구역은 {advice['peak_hour']}시 전후에 단속이 집중됩니다. "
+                    f"지금 시간대 기록은 {advice['now_count']:,}건이지만, "
+                    "단속 여부와 관계없이 주정차 금지 구역은 언제나 위반입니다."
+                )
+
+            chart = pd.DataFrame({"단속 건수": profile})
+            chart.index.name = "시"
+            st.bar_chart(chart, height=180, color="#e63946")
+            st.caption(
+                f"반경 {risk_radius_m}m 누적 {advice['total']:,}건 · "
+                f"최다 시간대 {advice['peak_hour']}시 ({advice['peak_count']:,}건)"
+            )
+
+        if True:
             alternatives = nearest_parking(position["lat"], position["lng"], all_lots, limit=3)
             if not alternatives.empty:
-                st.caption("여기 대신 세울 만한 가까운 주차장")
+                st.caption("여기 대신 세울 수 있는 가까운 합법 주차장")
                 st.dataframe(
                     alternatives[["parking_name", "lot_category", "address", "distance_m"]],
                     column_config={
@@ -383,7 +595,9 @@ def _markers(df, name_col, category, info_series, details=None):
 
 # 다발구역은 점 마커 대신 격자 폴리곤으로 칠한다 (kakao.maps.Polygon)
 area_polygons = (
-    build_density_grid(hotspots, cell_m=cell_m, min_count=min_count, weight_col="violation_count")
+    build_density_grid(
+        hotspots, cell_m=cell_m, top_ratio=top_ratio, weight_col="violation_count"
+    )
     if show_area and not hotspots.empty
     else []
 )
@@ -432,6 +646,26 @@ if show_parking:
         )
     )
 
+if show_logs and not my_logs.empty:
+    mine = my_logs.dropna(subset=["latitude", "longitude"]).copy()
+    if not mine.empty:
+        layers.append(
+            _markers(
+                mine, "place", "내 주차 기록",
+                mine["address"].fillna(""),
+                details=[
+                    [
+                        ["일시", parked.strftime("%Y-%m-%d %H:%M")],
+                        ["요금", "유료" if charged else "무료"],
+                        ["메모", memo if isinstance(memo, str) and memo else "-"],
+                    ]
+                    for parked, charged, memo in zip(
+                        mine["parked_at"], mine["is_charged"], mine["memo"]
+                    )
+                ],
+            )
+        )
+
 if position:
     layers.append(
         pd.DataFrame(
@@ -455,49 +689,118 @@ map_df = pd.concat(layers, ignore_index=True) if layers else pd.DataFrame(
 )
 mappable = map_df.dropna(subset=["lat", "lng"])
 
-if not config.KAKAO_JS_KEY:
-    st.warning("`.env`의 KAKAO_JS_KEY가 없어 지도를 표시할 수 없습니다.")
-elif mappable.empty and not area_polygons:
-    st.info("표시할 레이어가 없습니다. 사이드바에서 레이어를 켜주세요.")
-else:
-    if position:
-        map_center = (position["lat"], position["lng"])
-    elif has_center:
-        map_center = (center_lat, center_lng)
-    elif not mappable.empty:
-        map_center = (mappable["lat"].mean(), mappable["lng"].mean())
-    else:
-        pts = [pt for poly in area_polygons for pt in poly["path"]]
-        map_center = (
-            sum(p[0] for p in pts) / len(pts),
-            sum(p[1] for p in pts) / len(pts),
+# 지도는 화면 맨 위(map_slot)에 그린다. 계산은 여기서 다 끝난 뒤라야 하므로
+# 미리 잡아둔 자리에 나중에 채워 넣는 방식을 쓴다.
+with map_slot:
+    # 지도(왼쪽) + 목록 패널(오른쪽). 목록에서 고르면 그 지점으로 지도가 이동한다.
+    map_area, list_area = st.columns([3, 1], gap="small")
+
+    with list_area:
+        st.markdown("**목록**")
+        kinds = ["전체", *dict.fromkeys(mappable["category"])] if not mappable.empty else ["전체"]
+        kind = st.selectbox("구분", kinds, label_visibility="collapsed", key="list_kind")
+        place_query = st.text_input(
+            "장소 검색", placeholder="이름·주소 검색",
+            label_visibility="collapsed", key="list_query",
         )
 
-    st.iframe(
-        build_map_html(
-            mappable,
-            app_key=config.KAKAO_JS_KEY,
-            center_lat=map_center[0],
-            center_lng=map_center[1],
-            category_colors={
-                **{k: v for k, v in LAYER_COLOR.items() if k in set(mappable["category"])},
-                **({"단속 다발구역": LAYER_COLOR["단속 다발구역"]} if area_polygons else {}),
+        listed = mappable.copy()
+        if kind != "전체":
+            listed = listed[listed["category"] == kind]
+        if place_query:
+            hay = listed["name"].fillna("") + " " + listed["info"].fillna("")
+            listed = listed[hay.str.contains(place_query, case=False, na=False)]
+
+        # 내 위치가 있으면 가까운 순으로 정렬해 목록이 바로 쓸모 있게 한다
+        if position and not listed.empty:
+            listed = listed.assign(
+                _d=distances_m(position["lat"], position["lng"], listed.rename(
+                    columns={"lat": "latitude", "lng": "longitude"}))
+            ).sort_values("_d")
+
+        st.caption(f"{len(listed):,}건")
+        picked = st.dataframe(
+            listed[["name", "info"]].rename(columns={"name": "이름", "info": "주소"}),
+            column_config={
+                "이름": st.column_config.TextColumn("이름", width="medium"),
+                "주소": st.column_config.TextColumn("주소", width="small"),
             },
-            level=4 if position else (5 if has_center else 7),
-            polygons=area_polygons,
-            category_icons={
-                "공영": ICON_PARKING,
-                "민영": ICON_PARKING,
-                "단속 CCTV": ICON_CCTV,
-                "내 위치": ICON_MY_LOCATION,
-            },
-        ),
-        height=580,
-    )
-    parts = [f"{k} {v:,}개" for k, v in mappable["category"].value_counts().items()]
-    if area_polygons:
-        parts.append(f"단속 다발구역 {len(area_polygons):,}칸({cell_m}m 격자)")
-    st.caption(" · ".join(parts))
+            hide_index=True,
+            height=470,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="place_list",
+        )
+
+    selected_place = None
+    rows = picked.selection.rows if picked is not None and hasattr(picked, "selection") else []
+    if rows and not listed.empty and rows[0] < len(listed):
+        chosen = listed.iloc[rows[0]]
+        selected_place = (float(chosen["lat"]), float(chosen["lng"]), str(chosen["name"]))
+
+    if not config.KAKAO_JS_KEY:
+        st.warning("`.env`의 KAKAO_JS_KEY가 없어 지도를 표시할 수 없습니다.")
+    elif mappable.empty and not area_polygons:
+        st.info("표시할 레이어가 없습니다. 사이드바에서 레이어를 켜주세요.")
+    else:
+        if selected_place:
+            map_center = (selected_place[0], selected_place[1])
+        elif position:
+            map_center = (position["lat"], position["lng"])
+        elif has_center:
+            map_center = (center_lat, center_lng)
+        elif not mappable.empty:
+            map_center = (mappable["lat"].mean(), mappable["lng"].mean())
+        else:
+            pts = [pt for poly in area_polygons for pt in poly["path"]]
+            map_center = (
+                sum(p[0] for p in pts) / len(pts),
+                sum(p[1] for p in pts) / len(pts),
+            )
+
+        map_ctx = map_area if config.KAKAO_JS_KEY else st.container()
+        map_ctx.iframe(
+            build_map_html(
+                mappable,
+                app_key=config.KAKAO_JS_KEY,
+                center_lat=map_center[0],
+                center_lng=map_center[1],
+                category_colors={
+                    **{k: v for k, v in LAYER_COLOR.items() if k in set(mappable["category"])},
+                    **({"단속 다발구역": LAYER_COLOR["단속 다발구역"]} if area_polygons else {}),
+                },
+                level=3 if selected_place else (4 if position else (5 if has_center else 7)),
+                polygons=area_polygons,
+                category_icons={
+                    "공영": ICON_PARKING,
+                    "민영": ICON_PARKING,
+                    "단속 CCTV": ICON_CCTV,
+                    "내 주차 기록": ICON_CAR,
+                    "내 위치": ICON_MY_LOCATION,
+                },
+                pulse_categories={"내 위치"},
+                draggable_category="내 위치",
+                focus=(
+                    {
+                        "lat": position["lat"],
+                        "lng": position["lng"],
+                        "radius_m": risk_radius_m,
+                        "color": LAYER_COLOR["내 위치"],
+                    }
+                    if position
+                    else None
+                ),
+            ),
+            height=580,
+        )
+        if selected_place:
+            map_area.caption(f"목록에서 선택: **{selected_place[2]}**")
+        elif position:
+            map_area.caption("지도의 파란 :material/my_location: 마커를 끌어서 위치를 옮길 수 있습니다.")
+        parts = [f"{k} {v:,}개" for k, v in mappable["category"].value_counts().items()]
+        if area_polygons:
+            parts.append(f"단속 다발구역 {len(area_polygons):,}칸({cell_m}m 격자)")
+        map_area.caption(" · ".join(parts))
 
 # ── 목록 ──────────────────────────────────────────────────────
 with st.container(horizontal=True, vertical_alignment="center"):

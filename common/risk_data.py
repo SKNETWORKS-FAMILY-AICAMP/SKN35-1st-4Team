@@ -15,6 +15,7 @@ DB가 없으면 정제 CSV를 읽고, 그것도 없으면 빈 DataFrame을 돌�
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -29,7 +30,21 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # 팀원 스크립트가 저장하는 경로
 CCTV_CSV = ROOT / "data/cleaned/cctv_cleaned.csv"
-ENFORCEMENT_CSV = ROOT / "data/cleaned/enforcement_history.csv"
+
+# 단속 이력은 파일명이 제각각이라 후보를 순서대로 찾는다 (먼저 발견되는 것을 쓴다)
+ENFORCEMENT_CANDIDATES = (
+    ROOT / "data/cleaned/enforcement_history.csv",
+    ROOT / "data/cleaned/종로구_단속정보_통합_데이터.csv",
+)
+
+# 원본 한글 컬럼 -> 내부 이름. 단속일+단속시간은 합쳐서 enforced_at 을 만든다.
+ENFORCEMENT_COLUMN_MAP = {
+    "구주소": "address",
+    "도로명": "road_address",
+    "위도": "latitude",
+    "경도": "longitude",
+    "단속일시": "enforced_at",
+}
 
 # 위험도 판정 기준 (반경 안의 누적 단속 건수 / 가장 가까운 CCTV까지 거리)
 DEFAULT_RADIUS_M = 100
@@ -41,6 +56,7 @@ EMPTY_HOTSPOTS = pd.DataFrame(
     columns=["address", "latitude", "longitude", "violation_count"]
 )
 EMPTY_CCTV = pd.DataFrame(columns=["address", "latitude", "longitude", "organization"])
+EMPTY_SLOTS = pd.DataFrame(columns=["latitude", "longitude", "hour", "weekday", "count"])
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +104,50 @@ def _read_csv(path: Path) -> pd.DataFrame | None:
     return df if not df.empty else None
 
 
+def enforcement_path() -> Path | None:
+    """단속 이력 CSV 경로. 후보 중 먼저 존재하는 것."""
+    for path in ENFORCEMENT_CANDIDATES:
+        if path.exists():
+            return path
+    return None
+
+
+def _read_enforcement() -> pd.DataFrame | None:
+    """단속 이력 CSV를 읽어 address/latitude/longitude/enforced_at 로 통일.
+
+    원본 컬럼이 두 가지다.
+        정제본  : address, enforced_at, latitude, longitude
+        서울시  : 구주소, 단속일(20250101), 단속시간(00:00:05), 위도, 경도
+    """
+    path = enforcement_path()
+    if path is None:
+        return None
+
+    df = _read_csv(path)
+    if df is None:
+        return None
+
+    # 단속일 + 단속시간 -> enforced_at
+    if {"단속일", "단속시간"} <= set(df.columns):
+        day = pd.to_numeric(df["단속일"], errors="coerce")
+        df = df[day.notna()].copy()
+        df["단속일시"] = (
+            day[day.notna()].astype("int64").astype(str)
+            + " "
+            + df["단속시간"].astype(str)
+        )
+
+    df = df.rename(columns=ENFORCEMENT_COLUMN_MAP)
+    need = {"address", "latitude", "longitude"}
+    if not need <= set(df.columns):
+        return None
+
+    df["latitude"] = pd.to_numeric(df["latitude"], errors="coerce")
+    df["longitude"] = pd.to_numeric(df["longitude"], errors="coerce")
+    df = df.dropna(subset=["latitude", "longitude"])
+    return df if not df.empty else None
+
+
 def _mtime(path: Path) -> float:
     """파일 수정 시각. 없으면 0.
 
@@ -100,7 +160,8 @@ def _mtime(path: Path) -> float:
 
 def load_hotspots() -> tuple[pd.DataFrame, str]:
     """단속 다발구역(주소별 집계) + 출처 설명."""
-    return _load_hotspots(_mtime(ENFORCEMENT_CSV))
+    path = enforcement_path()
+    return _load_hotspots(_mtime(path) if path else 0.0)
 
 
 def load_cctv() -> tuple[pd.DataFrame, str]:
@@ -119,18 +180,15 @@ def _load_hotspots(csv_mtime: float) -> tuple[pd.DataFrame, str]:
     if from_db is not None:
         return from_db, f"단속 다발구역: DB ENFORCEMENT_HISTORY ({len(from_db):,}곳)"
 
-    raw = _read_csv(ENFORCEMENT_CSV)
-    if raw is not None and {"address", "latitude", "longitude"} <= set(raw.columns):
-        hotspots = (
-            raw.dropna(subset=["latitude", "longitude"])
-            .groupby("address", as_index=False)
-            .agg(
-                latitude=("latitude", "mean"),
-                longitude=("longitude", "mean"),
-                violation_count=("address", "size"),
-            )
+    raw = _read_enforcement()
+    if raw is not None:
+        hotspots = raw.groupby("address", as_index=False).agg(
+            latitude=("latitude", "mean"),
+            longitude=("longitude", "mean"),
+            violation_count=("address", "size"),
         )
-        return hotspots, f"단속 다발구역: {ENFORCEMENT_CSV.name} ({len(hotspots):,}곳)"
+        name = enforcement_path().name
+        return hotspots, f"단속 다발구역: {name} ({len(hotspots):,}곳 / {len(raw):,}건)"
 
     return EMPTY_HOTSPOTS.copy(), "단속 다발구역: 데이터 없음"
 
@@ -157,6 +215,61 @@ def _load_cctv(csv_mtime: float) -> tuple[pd.DataFrame, str]:
 # ---------------------------------------------------------------------------
 # 위험도 판정
 # ---------------------------------------------------------------------------
+def watch_detail(
+    lat: float,
+    lng: float,
+    hotspots: pd.DataFrame,
+    cctv: pd.DataFrame,
+    radius_m: int = DEFAULT_RADIUS_M,
+) -> list[dict]:
+    """감시 유형을 나눠서 각각의 상태와 대응 요령을 돌려준다.
+
+    두 위험은 적발 방식이 다르므로 나눠서 알려준다.
+        고정 CCTV : 24시간 자동 촬영
+        순찰 단속 : 단속원 순찰 중 적발
+    어느 쪽이든 결론은 같다 — 주차하면 안 되는 자리다.
+    """
+    details = []
+
+    cctv_d = distances_m(lat, lng, cctv)
+    if len(cctv_d) and np.isfinite(cctv_d).any():
+        nearest = float(np.min(cctv_d))
+        within = int((cctv_d <= radius_m).sum())
+        if nearest <= DANGER_CCTV_M:
+            level, action = "위험", "24시간 자동 촬영 중입니다. 여기 세우면 과태료 대상입니다."
+        elif nearest <= CAUTION_CCTV_M:
+            level, action = "주의", "근처에 단속 카메라가 있습니다. 주차 구역이 아니면 피하세요."
+        else:
+            level, action = "낮음", "반경 안에 카메라 기록은 없지만 주차 가능 여부와는 무관합니다."
+        details.append({
+            "type": "고정 CCTV",
+            "icon": ":material/videocam:",
+            "level": level,
+            "summary": f"가장 가까운 카메라 {nearest:,.0f}m · 반경 내 {within}대",
+            "action": action,
+        })
+
+    hotspot_d = distances_m(lat, lng, hotspots)
+    if len(hotspot_d) and np.isfinite(hotspot_d).any():
+        near = hotspots[hotspot_d <= radius_m]
+        count = int(pd.to_numeric(near["violation_count"], errors="coerce").fillna(0).sum())
+        if count >= DANGER_ENFORCEMENTS:
+            level, action = "위험", "단속이 반복된 구역입니다. 주차장을 이용하세요."
+        elif count > 0:
+            level, action = "주의", "단속된 적이 있는 구역입니다. 주차 구역이 아니면 피하세요."
+        else:
+            level, action = "낮음", "반경 안에 단속 기록은 없지만 주차 가능 여부와는 무관합니다."
+        details.append({
+            "type": "순찰 단속",
+            "icon": ":material/directions_walk:",
+            "level": level,
+            "summary": f"반경 내 누적 {count:,}건 · 다발구역 {len(near)}곳",
+            "action": action,
+        })
+
+    return details
+
+
 def assess_location(
     lat: float,
     lng: float,
@@ -190,13 +303,13 @@ def assess_location(
     if enforcement_count >= DANGER_ENFORCEMENTS or (
         nearest_cctv_m is not None and nearest_cctv_m <= DANGER_CCTV_M
     ):
-        level, message = "위험", "단속이 잦은 구역입니다. 주차를 피하는 편이 좋습니다."
+        level, message = "위험", "단속이 반복되는 구역입니다. 아래 주차장을 이용하세요."
     elif enforcement_count > 0 or (
         nearest_cctv_m is not None and nearest_cctv_m <= CAUTION_CCTV_M
     ):
-        level, message = "주의", "단속 이력이나 CCTV가 근처에 있습니다."
+        level, message = "주의", "단속 이력·카메라가 근처에 있습니다. 주차 구역인지 확인하세요."
     else:
-        level, message = "기록 없음", "반경 안에 단속 기록·CCTV가 없습니다. 현장 표지판을 확인하세요."
+        level, message = "기록 없음", "단속 기록은 없지만 주차 가능한 곳이라는 뜻은 아닙니다."
 
     return {
         "level": level,
@@ -208,6 +321,120 @@ def assess_location(
         "nearest_hotspot": nearest_hotspot,
         "cctv_count": cctv_count,
         "nearest_cctv_m": nearest_cctv_m,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 시간대별 단속 패턴
+# ---------------------------------------------------------------------------
+# 하루 전체의 몇 %를 넘으면 "단속이 잦은 시간대"로 볼지
+BUSY_SHARE = 0.08
+
+
+def _slots_from_frame(raw: pd.DataFrame) -> pd.DataFrame:
+    """단속 이력 원본 -> (좌표, 시간, 요일)별 건수."""
+    df = raw.dropna(subset=["latitude", "longitude", "enforced_at"]).copy()
+    df["enforced_at"] = pd.to_datetime(df["enforced_at"], errors="coerce")
+    df = df.dropna(subset=["enforced_at"])
+    if df.empty:
+        return EMPTY_SLOTS.copy()
+
+    df["hour"] = df["enforced_at"].dt.hour
+    df["weekday"] = df["enforced_at"].dt.weekday  # 월=0 … 일=6
+    return (
+        df.groupby(["latitude", "longitude", "hour", "weekday"], as_index=False)
+        .size()
+        .rename(columns={"size": "count"})
+    )
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _load_slots(csv_mtime: float) -> pd.DataFrame:
+    # DB는 SQL에서 미리 집계한다 (단속 이력은 수백만 행이 될 수 있다).
+    # MySQL DAYOFWEEK는 일=1이라 (+5)%7로 파이썬 요일(월=0)에 맞춘다.
+    from_db = _read_sql(
+        "SELECT ROUND(latitude, 5) AS latitude, ROUND(longitude, 5) AS longitude, "
+        "HOUR(enforced_at) AS hour, (DAYOFWEEK(enforced_at) + 5) %% 7 AS weekday, "
+        "COUNT(*) AS count "
+        "FROM ENFORCEMENT_HISTORY "
+        "WHERE latitude IS NOT NULL AND enforced_at IS NOT NULL "
+        "GROUP BY 1, 2, 3, 4"
+    )
+    if from_db is not None:
+        return from_db
+
+    raw = _read_enforcement()
+    if raw is not None and "enforced_at" in raw.columns:
+        return _slots_from_frame(raw)
+    return EMPTY_SLOTS.copy()
+
+
+def load_slots() -> pd.DataFrame:
+    """시간대별 단속 집계. 단속 이력이 없으면 빈 DataFrame."""
+    path = enforcement_path()
+    return _load_slots(_mtime(path) if path else 0.0)
+
+
+def hour_profile(
+    lat: float,
+    lng: float,
+    slots: pd.DataFrame,
+    radius_m: int = DEFAULT_RADIUS_M,
+    weekday: int | None = None,
+) -> pd.Series:
+    """반경 안 단속을 0~23시 건수로. weekday를 주면 그 요일만 센다."""
+    empty = pd.Series(0, index=range(24), name="count")
+    if slots.empty:
+        return empty
+
+    near = slots[distances_m(lat, lng, slots) <= radius_m]
+    if weekday is not None:
+        near = near[near["weekday"] == weekday]
+    if near.empty:
+        return empty
+
+    counts = near.groupby("hour")["count"].sum()
+    return counts.reindex(range(24), fill_value=0).astype(int).rename("count")
+
+
+def time_advice(profile: pd.Series, now: datetime | None = None) -> dict | None:
+    """지금 시간대가 위험한지 + 언제 안전해지는지(또는 위험해지는지).
+
+    "여기 세워도 되나"만큼 중요한 게 "언제까지 괜찮나"다.
+    같은 자리도 출근시간대와 심야의 단속 확률은 전혀 다르다.
+    """
+    total = int(profile.sum())
+    if total == 0:
+        return None
+
+    now = now or datetime.now()
+    threshold = max(1, total * BUSY_SHARE)
+    busy = [h for h in range(24) if profile[h] >= threshold]
+    if not busy:
+        return None
+
+    current = now.hour
+    is_busy = current in busy
+
+    # 지금부터 24시간을 훑어 상태가 바뀌는 첫 시각을 찾는다
+    change_hour = None
+    for step in range(1, 25):
+        hour = (current + step) % 24
+        if (hour in busy) != is_busy:
+            change_hour = hour
+            break
+
+    return {
+        "total": total,
+        "now_hour": current,
+        "now_count": int(profile[current]),
+        "now_share": float(profile[current]) / total,
+        "is_busy": is_busy,
+        "busy_hours": busy,
+        "peak_hour": int(profile.idxmax()),
+        "peak_count": int(profile.max()),
+        "change_hour": change_hour,
+        "hours_until_change": None if change_hour is None else (change_hour - current) % 24,
     }
 
 
@@ -228,7 +455,8 @@ METRES_PER_DEGREE = 111_320
 def build_density_grid(
     points: pd.DataFrame,
     cell_m: int = 150,
-    min_count: int = 2,
+    min_count: int = 1,
+    top_ratio: float | None = None,
     weight_col: str | None = None,
 ) -> list[dict]:
     """점 데이터를 격자로 묶어 카카오맵 Polygon 입력 목록으로 만든다.
@@ -240,6 +468,8 @@ def build_density_grid(
     weight_col 을 주면 그 컬럼을 합산하고(예: 주소별 단속 건수),
     없으면 격자 안의 점 개수를 센다.
     min_count 미만인 칸은 버린다 (한두 건까지 칠하면 지도가 온통 색이 된다).
+    top_ratio(0~1)를 주면 건수 상위 그 비율의 칸만 남긴다. 데이터 양이 늘어도
+    표시되는 칸 수가 일정하게 유지되므로 "최소 몇 건" 보다 다루기 쉽다.
     """
     usable = points.dropna(subset=["latitude", "longitude"])
     if usable.empty:
@@ -270,6 +500,8 @@ def build_density_grid(
         .groupby(["row", "col"], as_index=False)["weight"]
         .sum()
     )
+    if top_ratio is not None and 0 < top_ratio < 1:
+        cells = cells[cells["weight"] >= cells["weight"].quantile(1 - top_ratio)]
     cells = cells[cells["weight"] >= min_count]
     if cells.empty:
         return []
@@ -307,3 +539,29 @@ def nearest_parking(lat: float, lng: float, lots: pd.DataFrame, limit: int = 3) 
     out = usable.copy()
     out["distance_m"] = distances_m(lat, lng, usable)
     return out.nsmallest(limit, "distance_m")
+
+# ---------------------------------------------------------------------------
+# 과태료 안내
+# ---------------------------------------------------------------------------
+# 도로교통법 시행령 기준 불법주정차 과태료(승용차). 지자체·구역별로 달라질 수 있어
+# 화면에서는 반드시 "참고 금액"으로 표시한다.
+FINE_TABLE = [
+    ("일반 구역", 40_000, "일반 도로의 주정차 금지 구역"),
+    ("절대 금지 구역", 80_000, "소화전·교차로·버스정류소·횡단보도 주변"),
+    ("어린이 보호구역", 120_000, "초등학교 등 스쿨존 (08~20시)"),
+]
+
+
+def expected_fine(level: str) -> dict:
+    """판정 등급에 맞춰 보여줄 과태료 안내.
+
+    금액을 겁주려고 쓰는 게 아니라, "여기 세우면 이만큼 든다"를 먼저 보여줘서
+    합법 주차장 요금과 비교되게 하려는 것이다.
+    """
+    base = FINE_TABLE[0][1]
+    return {
+        "amount": base,
+        "table": FINE_TABLE,
+        "note": "승용차 기준 참고 금액입니다. 구역·차종·지자체에 따라 달라집니다.",
+        "show": level in ("위험", "주의"),
+    }
