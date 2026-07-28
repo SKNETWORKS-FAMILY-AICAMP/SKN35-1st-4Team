@@ -75,15 +75,22 @@ _geolocation = st.components.v2.component(
 SESSION_KEY = "my_position"
 
 
-def browser_position(key: str = "geolocation") -> dict | None:
+def browser_position(key: str = "geolocation", rerun_if_late: bool = False) -> dict | None:
     """위치 버튼을 그리고 마지막으로 받은 좌표를 돌려준다.
 
     setTriggerValue 로 넘어온 값은 한 번의 rerun 동안만 살아 있어서
     session_state 에 옮겨 담아야 이후 실행에서도 유지된다.
+
+    rerun_if_late: 이 버튼이 스크립트 후반(지도 옆 등)에 그려질 때 True 로 준다.
+        좌표가 도착한 시점엔 위험 판정 등 앞부분 계산이 이미 끝난 뒤라,
+        즉시 한 번 다시 그려야 방금 받은 위치가 화면 전체에 반영된다.
+        (result.position 은 클릭한 그 rerun 에서만 값이 있어 무한 재실행은 없다)
     """
     result = _geolocation(key=key, on_position_change=lambda: None)
     if result.position:
         st.session_state[SESSION_KEY] = result.position
+        if rerun_if_late:
+            st.rerun()
     return st.session_state.get(SESSION_KEY)
 
 

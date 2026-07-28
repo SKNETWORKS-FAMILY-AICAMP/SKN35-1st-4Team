@@ -1,77 +1,126 @@
-# 주정차 제한 정보 조회 및 주변 주차장 안내 시스템
+# 앗차차! — 여기 세워도 될까?
 
-공공데이터 + 웹 크롤링 + Streamlit + 카카오맵 + MySQL(DBeaver) 기반 팀 프로젝트.
-지금은 팀원별로 각자 페이지에서 작업하고, 완성 후 통합할 예정입니다
-(FAQ 두 페이지는 최종적으로 한 페이지로 합칠 계획).
+> "앗, 여기 세우면 안 되는 곳이었네" 하고 알아채는 순간을 3초 앞당겨주는 주정차 안내 서비스
 
-## 담당 매핑
+종로구의 **주차장 232곳 · 불법주정차 단속 이력 232,853건 · 단속 CCTV 196대**를
+한 지도에 겹쳐 보여주고, 지금 내가 선 자리가 단속 위험 구역인지 판정합니다.
+위험하면 겁만 주는 게 아니라 — **"과태료 4만원 대신 도보 3분 주차장 8천원, 3만 2천원 아껴요"** 처럼
+합법 주차장을 대안으로 함께 보여줍니다.
 
-| 담당 | 데이터 | 파일 |
+- **배포**: <https://atchacha.streamlit.app>
+- **스택**: Streamlit · Kakao Maps JS SDK · TiDB Cloud (MySQL 호환) · pandas
+- **문서**: [기능명세서](docs/기능명세서.md) · [아키텍처](docs/아키텍처.md) · [계획안](docs/계획안.md) · [트러블슈팅](docs/트러블슈팅.md)
+
+## 주요 기능
+
+| 기능 | 설명 |
+|---|---|
+| 단속 위험 판정 | 내 위치(GPS·지도 마커 드래그·좌표 입력) 반경 100m의 누적 단속 건수와 최근접 CCTV 거리로 위험/주의/기록 없음 3등급 판정. 반원 게이지로 표시 |
+| 절약 배너 | 예상 과태료와 근처 최저가 주차장 요금을 비교해 "얼마 아껴요"를 항상 표시 |
+| 통합 지도 | 공영·민영 주차장 마커, 단속 다발구역 히트 블롭(원형, 뜨거울수록 크고 진함), CCTV, 내 주차 기록을 레이어로 켜고 끄기 |
+| 주차장 추천 | 거리·여유·요금 가중 점수로 정렬한 카드 6장 + 전체 표. 예상요금은 기본/추가요금·일 최대요금 반영 |
+| 시간대 분석 | 반경 내 단속이 몰리는 시간대를 막대그래프로 (종로는 20시가 피크) |
+| 회원·주차 기록 | pbkdf2 해시 로그인, 주차한 자리 기록·지도 표시, 누적 절약 리포트 |
+| FAQ · 민원 사례 | 주정차 FAQ 90건(주제 9종), 종로구 실제 민원·답변 91건 |
+
+## 팀 (SKN35 1st 4Team)
+
+| 담당 | 파트 | 주요 파일 |
 |---|---|---|
-| 치훈 | 서울시 불법주정차 단속 정보 (OA-22190) | `collectors/enforcement_history.py`, `pages/1_단속_다발구역.py` |
-| 종원 | 단속 CCTV 위치정보 (OA-20471) | `collectors/cctv_api.py`, `pages/2_CCTV_지도.py` |
-| 승희 | 데이터 통합 첫 화면(주차장+단속 다발구역+CCTV), 단속 위험 판정, 로그인·주차기록 | `main.py`, `collectors/seoul_parking.py`, `common/parking_data.py`, `common/recommend.py`, `common/risk_data.py`, `common/geolocation.py`, `common/auth.py`, `common/parking_log.py`, `pages/6_로그인_회원가입.py`, `pages/7_마이페이지.py` |
-| 연주 또는 은미 | 크롤링 A (FAQ - 이용안내 계열) | `collectors/faq_crawler_a.py`, `pages/4_FAQ_이용안내.py` |
-| 연주 또는 은미 | 크롤링 B (FAQ - 단속·견인·이의신청 계열) | `collectors/faq_crawler_b.py`, `pages/5_FAQ_단속견인.py` |
+| 승희 | 통합 홈(지도·위험 판정·추천), 로그인·주차기록, 디자인 시스템, TiDB 적재·배포 | `main.py`, `app_pages/home.py`, `app_pages/login.py`, `app_pages/mypage.py`, `common/*`, `collectors/seoul_parking.py`, `loaders/*` |
+| 치훈 | 불법주정차 단속 이력 수집·정제 (OA-22190) | `collectors/enforcement_history.py` → `ENFORCEMENT_HISTORY` |
+| 종원 | 단속 CCTV 위치 수집 (OA-20471) | `collectors/cctv_api.py` → `CCTV_INFO` |
+| 연주 · 은미 | FAQ 크롤링·페이지, 민원 게시판 | `collectors/faq_crawler_*.py`, `app_pages/faq.py`, `app_pages/board.py`, `loaders/load_to_complain.py` |
+
+> 초기에 있던 단속 다발구역·CCTV 개별 페이지는 홈 지도의 레이어로 통합되었습니다.
+> 수집·정제한 데이터는 그대로 홈 화면의 핵심 재료로 쓰입니다.
 
 ## 폴더 구조
 
 ```
 .
-├── main.py                    # 승희 - 첫 화면: 통합 지도 + 내 위치 단속 위험 판정
-├── config.py                  # .env 로더 (MySQL 접속정보, 카카오/공공데이터 키)
-├── pyproject.toml / uv.lock   # uv 의존성
-├── .env.example               # 환경변수 템플릿 (실제 .env는 git 제외)
+├── main.py                  # 진입점(라우터) — st.navigation 으로 페이지·메뉴 구성
+├── config.py                # 설정 로더 (.env → st.secrets 순서로 탐색)
 │
-├── pages/                     # Streamlit 멀티페이지 (사이드바에 자동 표시)
-│   ├── 1_단속_다발구역.py      # 치훈
-│   ├── 2_CCTV_지도.py          # 종원
-│   ├── 4_FAQ_이용안내.py       # 연주 또는 은미  ┐ 추후 한 페이지로
-│   ├── 5_FAQ_단속견인.py       # 연주 또는 은미  ┘ 통합 예정
-│   ├── 6_로그인_회원가입.py     # 승희
-│   └── 7_마이페이지.py         # 승희 - 주차 등록 + 주차 기록
+├── app_pages/               # 화면
+│   ├── home.py              #   홈: 통합 지도 + 위험 판정 + 추천
+│   ├── faq.py               #   자주 묻는 질문
+│   ├── board.py             #   민원 사례
+│   ├── login.py             #   로그인·회원가입
+│   └── mypage.py            #   내 주차 기록
 │
-├── common/                    # 공유 유틸
-│   ├── db.py                  # MySQL 연결 + read_sql/execute
-│   ├── kakao_map.py           # 카카오맵 HTML 빌더 (커스텀 마커/말풍선/범례/지오코딩)
-│   ├── geo.py                 # 거리 계산 (지오코딩 함수 포함 - REST 키 발급 시 사용)
-│   ├── auth.py                # 승희 - 회원가입·로그인 (pbkdf2 해싱, MySQL/SQLite 자동 전환)
-│   ├── risk_data.py           # 승희 - 단속 다발구역·CCTV 로더 + 위험도 판정
-│   ├── geolocation.py         # 승희 - 브라우저 현재 위치 (st.components.v2)
-│   ├── parking_log.py         # 승희 - 주차 기록 저장·조회·요약
-│   ├── recommend.py           # 승희 - 예상요금·운영여부·추천 점수 (순수 함수, 자체 테스트 포함)
-│   ├── parking_data.py        # 승희 - 주차장 데이터 로더 (DB -> CSV -> 즉석 수집 폴백)
-│   └── ui.py                  # 공통 디자인 (CSS, 히어로 배너, 카드, 상태 칩)
+├── common/                  # 공유 모듈
+│   ├── ui.py                #   앗차차 디자인 시스템 (팔레트·히어로·게이지·일러스트·카드)
+│   ├── kakao_map.py         #   카카오맵 HTML 빌더 (마커·히트 블롭·드래그·범례)
+│   ├── risk_data.py         #   단속·CCTV 로더 + 위험 판정 + 시간대 분석 + 히트 블롭 집계
+│   ├── parking_data.py      #   주차장 로더 (DB → CSV 폴백)
+│   ├── recommend.py         #   예상요금·운영여부·추천 점수 (순수 함수 + 자체 테스트)
+│   ├── geolocation.py       #   브라우저 GPS + 지도 드래그 좌표 브리지 (CCv2)
+│   ├── auth.py              #   회원가입·로그인 (pbkdf2, MySQL/SQLite 자동 전환)
+│   ├── parking_log.py       #   주차 기록 CRUD
+│   ├── db.py                #   SQLAlchemy 엔진 (TiDB SSL 자동 설정)
+│   └── geo.py               #   거리 계산
 │
-├── collectors/                # 데이터 수집 스크립트 (담당자별)
-│   ├── enforcement_history.py     # 치훈 - 단속이력 CSV 정제 + 다발구역 집계
-│   ├── cctv_api.py                # 종원 - 서울 열린데이터광장 Open API
-│   ├── seoul_parking.py           # 승희 - 주차정보안내시스템 크롤링 + 실시간 여유(OA-21709)
-│   ├── faq_crawler_a.py           # 연주 또는 은미 - 서울시설공단 FAQ (정적, 확인됨)
-│   └── faq_crawler_b.py           # 연주 또는 은미 - 견인/민원링크/고시공고
+├── collectors/              # 데이터 수집 (담당자별)
+├── loaders/                 # CSV → DB 적재
+│   ├── load_all.py          #   주차장·CCTV·FAQ·민원·단속이력 일괄 적재
+│   ├── load_to_db.py        #   테이블별 정규화 + 적재 공통 로직
+│   └── check_db.py          #   접속·테이블 상태 진단
 │
-├── db/
-│   └── schema.sql             # 전체 테이블 CREATE문 (DBeaver에서 실행)
-│
-├── loaders/
-│   └── load_to_db.py          # 정제 CSV → MySQL 적재 공통 스크립트
-│
-└── data/
-    ├── raw/                   # 수집 원본
-    └── cleaned/               # 정제 결과 (loaders가 여기서 읽음)
+├── db/schema.sql            # 전체 테이블 정의
+├── assets/                  # 앗차차 로고·아이콘 SVG
+├── data/cleaned/            # 정제 CSV (대용량 단속 이력은 git 제외 → DB로만 배포)
+└── docs/                    # 기능명세서·아키텍처·계획안·트러블슈팅
 ```
+
+## 빠르게 실행하기
+
+```bash
+git clone <repo-url> && cd SKN35-1st-4Team
+uv sync
+cp .env.example .env    # 값 채우기 (아래 표)
+uv run streamlit run main.py
+```
+
+| 키 | 용도 | 없으면 |
+|---|---|---|
+| `DB_HOST` `DB_PORT` `DB_USERNAME` `DB_PASSWORD` `DB_DATABASE` | TiDB Cloud(또는 로컬 MySQL) | 주차장만 CSV로 동작, 단속·CCTV·로그인 제한 |
+| `KAKAO_JS_KEY` | 카카오맵 (JavaScript 키) | 지도 미표시 |
+| `KAKAO_REST_KEY` | 주소→좌표 변환 | 좌표 직접 입력만 가능 |
+| `SEOUL_OPENAPI_KEY` | 실시간 주차 여유 (OA-21709) | 여유 정보 없이 동작 |
+
+카카오 키는 [developers.kakao.com](https://developers.kakao.com) → 플랫폼 → Web 에
+`http://localhost:8501` 이 등록돼 있어야 합니다 (**포트가 다르면 차단**).
+
+## 데이터 적재
+
+```bash
+uv run python loaders/load_all.py          # 5개 테이블 일괄 (비우고 새로)
+uv run python loaders/load_all.py --only PARKING_LOT FAQ
+uv run python loaders/check_db.py          # 접속·행 수 진단
+```
+
+단속 이력 CSV(24MB)는 git에 없으므로 배포판은 **DB에서만** 읽습니다.
+새 clone에서 전체 재적재가 필요하면 팀원에게 CSV를 받아 `data/cleaned/`에 두세요.
+
+## 배포 (Streamlit Community Cloud)
+
+1. share.streamlit.io → Create app → 이 레포 / `main` / `main.py` / Python 3.12
+2. **Settings → Secrets** 에 위 표의 키들을 TOML로 입력 (따옴표 필수)
+3. 카카오 콘솔 Web 도메인에 `https://<앱이름>.streamlit.app` 추가
+4. 코드 푸시 후 반영이 안 보이면 **Reboot app**
+
+앱 화면의 「설정 진단」이 어떤 키가 전달됐는지(값은 숨김) 알려줍니다.
+상세한 실패 사례는 [트러블슈팅](docs/트러블슈팅.md) 참고.
+
 ## ERD
+
 ```mermaid
 erDiagram
-    %% ============================================================
-    %% 주정차 제한 정보 조회 및 주변 주차장 안내 시스템 - ERD
-    %% GitHub README나 발표자료에 그대로 붙여넣으면 렌더링됩니다.
-    %% ============================================================
-
-    USERS ||--o{ PARKING_LOG : "주차기록 보유"
+    USERS ||--o{ PARKING_LOG : "주차기록"
 
     ENFORCEMENT_HISTORY {
-        INT history_id PK "AUTO_INCREMENT"
+        INT history_id PK
         VARCHAR address "단속 주소 (idx)"
         DATETIME enforced_at "단속일시 (idx)"
         DECIMAL latitude
@@ -79,155 +128,80 @@ erDiagram
     }
 
     CCTV_INFO {
-        INT cctv_id PK "AUTO_INCREMENT"
-        VARCHAR address "설치 주소"
-        DECIMAL latitude
-        DECIMAL longitude
-        VARCHAR organization "관리기관"
-        VARCHAR purpose "설치 목적"
-    }
-
-    PARKING_LOT {
-        VARCHAR parking_id PK "주차장코드 / STD-xxx"
-        VARCHAR parking_name
-        VARCHAR lot_category "공영 / 민영"
-        VARCHAR lot_type "노상 / 노외 / 부설"
-        VARCHAR operation_rule "시간제 / 거주자우선 등"
-        VARCHAR district "자치구 (idx)"
+        INT cctv_id PK
         VARCHAR address
         DECIMAL latitude
         DECIMAL longitude
-        VARCHAR phone
-        INT capacity "총 주차면"
-        VARCHAR pay_type "유료 / 무료"
-        INT base_fee "기본요금(원)"
+        VARCHAR organization
+        VARCHAR purpose
+    }
+
+    PARKING_LOT {
+        VARCHAR parking_id PK
+        VARCHAR parking_name
+        VARCHAR lot_category "공영/민영"
+        VARCHAR lot_type "노상/노외/부설"
+        VARCHAR district "자치구 (idx)"
+        DECIMAL latitude
+        DECIMAL longitude
+        INT capacity
+        INT base_fee "기본요금"
         INT base_time "기본시간(분)"
-        INT add_fee "추가 단위요금(원)"
-        INT add_time "추가 단위시간(분)"
-        INT day_max_fee "일 최대요금(원)"
-        INT monthly_fee "월 정기권(원)"
-        SMALLINT weekday_start "평일 시작 HHMM"
-        SMALLINT weekday_end "평일 종료 HHMM"
-        SMALLINT weekend_start "주말 시작 HHMM"
-        SMALLINT weekend_end "주말 종료 HHMM"
-        SMALLINT holiday_start "공휴일 시작 HHMM"
-        SMALLINT holiday_end "공휴일 종료 HHMM"
-        VARCHAR source "seoul_site / seoul_public / standard"
-        VARCHAR fee "표시용 요금 문구"
-        VARCHAR operation_time "표시용 운영시간 문구"
+        INT add_fee
+        INT add_time
+        INT day_max_fee
+        SMALLINT weekday_start "HHMM x6 (평일/주말/공휴일)"
+        VARCHAR fee "표시용 문구"
+        VARCHAR operation_time
     }
 
     FAQ {
-        INT faq_id PK "AUTO_INCREMENT"
-        VARCHAR category "크롤링 A/B 구분 기준"
+        INT faq_id PK
+        VARCHAR category "9개 주제"
         VARCHAR question
         TEXT answer
-        VARCHAR source "출처 URL"
+        VARCHAR source
+    }
+
+    complain {
+        INT faq2_id PK
+        VARCHAR q_title
+        VARCHAR q_writer
+        DATETIME q_date
+        TEXT question
+        VARCHAR a_depart "담당 부서"
+        DATETIME a_date
+        TEXT answer
     }
 
     USERS {
-        INT user_id PK "AUTO_INCREMENT"
-        VARCHAR username UK "중복 불가"
-        VARCHAR password_hash "해시 저장 (평문 금지)"
+        INT user_id PK
+        VARCHAR username UK
+        VARCHAR password_hash "pbkdf2, 평문 금지"
         DATETIME created_at
     }
 
     PARKING_LOG {
-        INT log_id PK "AUTO_INCREMENT"
-        INT user_id FK "USERS.user_id (CASCADE)"
+        INT log_id PK
+        INT user_id FK
+        VARCHAR parking_id "주차장 선택 시"
+        VARCHAR parking_name
         VARCHAR address
         DECIMAL latitude
         DECIMAL longitude
         DATETIME parked_at
-        BOOLEAN is_charged "유료 여부"
+        BOOLEAN is_charged
+        VARCHAR memo
     }
 ```
 
-## 처음 시작할 때 (팀원 각자 1회)
-
-```bash
-git clone <repo-url>
-cd <repo>
-uv sync                        # pyproject.toml/uv.lock 기준으로 가상환경 자동 생성
-cp .env.example .env           # .env 열어서 값 채우기
-```
-
-`.env`에 채울 값 (현재 사용하는 키는 2개 + MySQL 접속정보):
-
-- `MYSQL_*` — DBeaver에서 만든 로컬 MySQL 접속 정보
-- `KAKAO_JS_KEY` — 카카오 개발자 콘솔 > 앱 키 > **JavaScript 키** (지도 표시용)
-- `DATA_GO_KR_API_KEY` — 공공데이터포털(data.go.kr) 인증키
-
-`SEOUL_OPENAPI_KEY`(서울 열린데이터광장)는 종원 담당 CCTV Open API를 쓸 때
-필요해지면 그때 `.env`에 추가하면 됩니다 (없어도 앱은 동작).
-
-## DB 만들기 (1회, DBeaver에서)
-
-```sql
-CREATE DATABASE parking_project DEFAULT CHARACTER SET utf8mb4;
-```
-
-이후 `parking_project`를 선택한 상태에서 `db/schema.sql` 전체를 실행합니다.
-
-## 실행
-
-```bash
-uv run streamlit run main.py
-```
-
-DB나 카카오 키가 아직 없어도 모든 페이지는 샘플 데이터로 동작합니다.
-
-## 데이터 수집 -> 정제 -> 적재 흐름
-
-1. `collectors/`의 본인 담당 스크립트 실행 → `data/raw/` 또는 `data/cleaned/`에 저장
-2. `uv run python loaders/load_to_db.py --csv data/cleaned/xxx.csv --table 테이블명` 으로 MySQL 적재
-3. Streamlit 페이지에서 확인 (`@st.cache_data` 캐시 때문에 바로 안 보이면 10분 대기 또는 앱 재시작)
-
-### 주차장 검색 (승희) 파이프라인
-
-현재 검색 범위는 **종로구**입니다 (`common/parking_data.py`의 `DISTRICTS`).
-저장소에 `data/cleaned/parking_lot.csv`가 들어있어 별도 준비 없이 바로 동작합니다.
-
-수집 범위를 바꾸려면 CSV를 다시 만들면 됩니다.
-
-```bash
-uv run python collectors/seoul_parking.py                    # 종로구 232곳, 좌표 100%
-uv run python collectors/seoul_parking.py --district all      # 서울 25개구
-```
-
-DB에 넣으려면 위 CSV를 그대로 적재합니다.
-
-```bash
-uv run python loaders/load_to_db.py --csv data/cleaned/parking_lot.csv --table PARKING_LOT --if-exists truncate
-```
-
-추천 로직은 스트림릿 없이 단독 검증됩니다.
-
-```bash
-uv run python common/recommend.py   # 예상요금·운영여부·추천 점수 테스트
-```
-
-### 로그인 · 주차기록 (승희)
-
-`.env`에 MySQL 정보가 있으면 MySQL의 `USERS` / `PARKING_LOG` 을 쓰고,
-없으면 `data/app.db`(SQLite)를 자동으로 만들어 씁니다. `.env`만 채우면 코드 수정 없이 넘어갑니다.
-
-- 비밀번호는 `pbkdf2_sha256`(반복 20만회 + 사용자별 salt)으로 해시해서 저장하고 평문은 남기지 않습니다.
-- 로그인 상태는 `st.session_state`에 두므로 **브라우저를 새로 고치면 로그아웃**됩니다
-  (쿠키를 쓰려면 별도 컴포넌트가 필요해서 의도적으로 세션 기반으로 뒀습니다).
-- `data/app.db`는 개인 데이터라 `.gitignore`에 넣었습니다.
-
-## 데이터 소스 메모 (실제로 열어서 확인한 결과)
+## 데이터 소스
 
 | 소스 | 형태 | 비고 |
 |---|---|---|
-| 서울시 불법주정차 단속 정보 (OA-22190) | CSV 다운로드 (분기별 12개) | 단속일시/단속주소/위도/경도 |
-| 서울시 단속 CCTV 위치정보 (OA-20471) | Open API (서울 열린데이터광장 키 필요) | 파일 다운로드 미제공 |
-| **서울특별시 주차정보안내시스템** (parking.seoul.go.kr) | 내부 AJAX(`SearchParkingBy.do`) 크롤링 | **주력 소스.** 자치구 단위로 공영·민영·부설을 모두 주고 **좌표 100%**. 종로구 232곳 (공영 52 / 민영 180). 페이징 없음 |
-| 서울시 공영주차장 안내 정보 (OA-13122) | CSV 다운로드 (`seoul_parking.csv`, EUC-KR) | **미사용.** 850곳 중 좌표가 117곳뿐이고 민영이 없어서, 위 크롤링 데이터로 완전히 대체됨 (요금·정기권까지 크롤링 쪽이 더 채워짐) |
-| 서울시 실시간 주차정보 (OA-21709) | Open API (`SEOUL_OPENAPI_KEY`) | 시영주차장 122곳의 현재 주차대수 → 추천의 '여유 점수'에 사용 |
-| 서울시설공단 공영주차장 FAQ (sisul.or.kr) | 정적 게시판 | requests+bs4로 크롤링 확인됨 |
-| 종로구시설관리공단 견인 안내 (ijongno.co.kr/www/422) | 정적 페이지 | requests+bs4로 크롤링 확인됨 |
-| 서울시 고시공고 '주정차' 키워드 | JS 렌더링 | Selenium 필요 (faq_crawler_b.py TODO) |
-| 새올민원창구/응답소/국민신문고 | 로그인 필요 | 크롤링 대신 안내 링크로 수록 |
-
+| **서울 주차정보안내시스템** (parking.seoul.go.kr) | 내부 AJAX 크롤링 | 주력. 공영+민영, 좌표 100%, 종로구 232곳 |
+| 서울시 불법주정차 단속 정보 (OA-22190) | CSV | 232,853건 (2024-03 ~ 2025-12) |
+| 서울시 단속 CCTV 위치 (OA-20471) | Open API | 196대 |
+| 서울시 실시간 주차정보 (OA-21709) | Open API | 시영 주차장 현재 주차대수 → 여유 점수 |
+| 서울시설공단 FAQ · 종로구 민원 | 크롤링 | FAQ 90건 · 민원 91건 |
+| 서울시 공영주차장 안내 (OA-13122) | CSV | **미사용** — 좌표 117/850뿐, 크롤링으로 대체 |

@@ -883,6 +883,16 @@ with map_slot:
                 sum(b["lng"] for b in area_blobs) / len(area_blobs),
             )
 
+        # 사이드바에도 같은 버튼이 있지만, 사이드바를 접고 지도만 보는 사용자가
+        # 위치를 잡으려고 다시 열지 않아도 되게 지도 바로 위에 하나 더 둔다.
+        locate_col, hint_col = map_area.columns([1.1, 2.9], vertical_alignment="center")
+        with locate_col:
+            browser_position(key="geolocation_map", rerun_if_late=True)
+        with hint_col:
+            st.caption(
+                "버튼을 누르면 내 위치로 이동합니다. 지도의 파란 마커를 끌어도 옮겨져요."
+            )
+
         map_ctx = map_area if config.KAKAO_JS_KEY else st.container()
         map_ctx.iframe(
             build_map_html(
