@@ -2,12 +2,32 @@
 .env.example
 ./.claude
 .venv
-./__pycache__
+__pycache__/  
+#   ./__pycache__ 에서 변경 
+
 .python-version
 # Claude / 에이전트 작업 기록
 .claude/
 .agents/
+<<<<<<< HEAD
 
 KAKAO_JS_KEY="b4194165329895cb014d1320018b7515"
 SEOUL_OPENAPI_KEY="557a73567a6670613936567a71556a"
 KAKAO_REST_KEY="fd68378de8dbfcdda47c7bca1342bc04"  # 카카오 개발자 콘솔 > 앱 키 > REST API 키
+=======
+# 로컬 회원/주차기록 DB (MySQL 미설정 시 폴백)
+data/app.db
+
+## ----------------- 혹시 데이터를 직접 재현할 경우를 위해
+data/raw/*.csv
+data/cleaned/*.csv
+## ------------------
+# 단, 주차장 목록은 저장소에 포함한다 (이 파일 하나로 주차장 검색이 바로 동작)
+!data/cleaned/parking_lot.csv
+# 민원 게시판 데이터도 저장소에 포함 (연주/은미)
+!data/cleaned/complain_faq2_result.csv
+uv.lock
+
+# Streamlit 시크릿 (DB 비밀번호 등) - 절대 커밋 금지
+.streamlit/secrets.toml
+>>>>>>> main

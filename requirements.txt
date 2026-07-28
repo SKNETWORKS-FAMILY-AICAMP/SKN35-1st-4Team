@@ -1,0 +1,16 @@
+# Streamlit Community Cloud 배포용 (로컬 개발은 uv sync 사용)
+#
+# 앱을 띄우는 데 실제로 필요한 것만 둔다. 수집 스크립트에만 쓰는
+# selenium·bs4·openpyxl·webdriver-manager 는 뺐다 — 클라우드에는 브라우저가
+# 없어 설치해봐야 못 쓰고, 빌드 시간만 늘고 실패 지점만 생긴다.
+# (수집기를 돌릴 때는 로컬에서 `uv sync` 로 전체 의존성을 쓴다)
+
+streamlit>=1.60.0
+pandas>=2.3.3
+numpy>=1.26             # common/risk_data.py 의 거리 계산에 직접 사용
+sqlalchemy>=2.0.51
+pymysql>=1.2.0          # MySQL / TiDB 드라이버
+cryptography>=42.0      # TiDB 인증(caching_sha2_password)에 필요
+certifi>=2024.2.2       # TiDB Cloud SSL 인증서 번들
+python-dotenv>=1.0.0    # config.py 의 load_dotenv (패키지명 주의: dotenv 아님)
+requests>=2.32.0        # 서울시 실시간 주차 API

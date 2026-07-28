@@ -10,7 +10,7 @@ st.set_page_config(
     page_title="FAQ 대시보드", page_icon="💡", layout="wide"
 )
 
-# --- [UI/UX 디자인 개선] 펼쳐진(Open) 질문(Q) 박스의 배경색만 살짝 진한 회색으로 강조하는 CSS ---
+# --- [UI/UX 디자인 개선] 미선택 탭에 은은한 배경색과 테두리 적용 ---
 st.markdown(
     """
     <style>
@@ -25,7 +25,7 @@ st.markdown(
         gap: 8px;
         background-color: transparent;
         padding: 4px 0px 12px 0px;
-        border-bottom: 2px solid #cbd5e1;
+        border-bottom: 2px solid #e2e8f0;
         width: 100%;
         box-sizing: border-box;
         align-items: center;
@@ -38,20 +38,20 @@ st.markdown(
         max-width: none !important;
     }
 
-    /* 카테고리 버튼 전체 스타일: 고정 너비(100%), 글자 크기, 굵기(700), 검정색 지정 */
+    /* 카테고리 버튼 기본 스타일 (미선택 탭에 은은한 배경색과 연한 테두리 적용) */
     div[data-testid="stHorizontalBlock"] > div button,
     div[data-testid="stHorizontalBlock"] > div button * {
         font-size: 1.1rem !important;
         font-weight: 700 !important;
-        color: #111111 !important;
+        color: #475569 !important;
         -webkit-font-smoothing: antialiased;
     }
 
     div[data-testid="stHorizontalBlock"] > div button {
         width: 100% !important;
-        background-color: #ffffff !important;
-        border: 2px solid #cbd5e1 !important;
-        border-radius: 6px !important;
+        background-color: #fafaf9 !important;
+        border: 1px solid #e7e5e4 !important;
+        border-radius: 8px !important;
         padding: 10px 4px !important;
         text-align: center;
         white-space: nowrap;
@@ -62,33 +62,52 @@ st.markdown(
     
     /* 미선택 탭 마우스 올렸을 때(Hover) 효과 */
     div[data-testid="stHorizontalBlock"] > div button:hover {
-        background-color: #f1f5f9 !important;
-        border-color: #94a3b8 !important;
+        background-color: #fff7ed !important;
+        border-color: #fdba74 !important;
+        color: #c2410c !important;
     }
 
-    /* 💡 열린(Expanded) 아코디언의 '상단 질문 영역(summary)'만 배경을 살짝 진한 회색(#e2e8f0)으로 설정 */
+    /* 💡 활성화된 카테고리 버튼 스타일 (오렌지 포인트) */
+    div[data-testid="stHorizontalBlock"] > div button[kind="secondary"] {
+        background-color: #fff7ed !important;
+        border: 2px solid #f97316 !important;
+        color: #c2410c !important;
+    }
+
+    /* 💡 열린(Expanded) 아코디언의 '상단 질문 영역(summary)' 배경을 따뜻한 오렌지 베이지빛(#fff7ed)으로 강조 */
     details[open] > summary {
-        background-color: #e2e8f0 !important;
-        border-radius: 6px 6px 0 0 !important;
+        background-color: #fff7ed !important;
+        border-radius: 8px 8px 0 0 !important;
+        border-bottom: 1px solid #fed7aa !important;
     }
 
-    /* 열린 아코디언 전체 박스의 테두리 강조 */
+    /* 열린 아코디언 전체 박스의 테두리를 오렌지 포인트 색상으로 강조 */
     details[open] {
-        border: 1px solid #94a3b8 !important;
-        border-radius: 6px !important;
+        border: 2px solid #f97316 !important;
+        border-radius: 8px !important;
+        background-color: #ffffff !important;
+        box-shadow: 0 4px 6px -1px rgba(249, 115, 22, 0.1);
+    }
+
+    /* 닫혀있는 아코디언 기본 박스 스타일 */
+    details {
+        border: 2px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        transition: all 0.2s ease-in-out;
     }
 
     /* 아코디언 질문(Q) 글자 크기와 굵기 강조 */
     details summary p {
         font-weight: 700 !important;
         font-size: 1.15rem !important;
-        color: #1a1a1a !important;
+        color: #1e293b !important;
     }
     
     /* 아코디언 호버 시 배경 강조 효과 (열려있지 않을 때만) */
     details:not([open]):hover {
-        background-color: #f8f9fa;
-        border-radius: 6px;
+        background-color: #f8fafc;
+        border-color: #cbd5e1 !important;
+        border-radius: 8px;
     }
     </style>
 """,
@@ -188,9 +207,9 @@ if search_query:
 # 상단 통계 항목
 st.markdown(
     f"""
-    <div style="display: flex; gap: 20px; font-size: 0.9rem; color: #666; margin-bottom: 15px;">
+    <div style="display: flex; gap: 20px; font-size: 0.9rem; color: #64748b; margin-bottom: 15px;">
         <div>📊 전체 FAQ: <b>{len(df)}개</b></div>
-        <div>🎯 검색 결과: <b>{len(filtered_df)}개</b></div>
+        <div>🔍  검색 결과: <b>{len(filtered_df)}개</b></div>
         <div>🏷️ 카테고리 수: <b>{df['category'].nunique()}개</b></div>
     </div>
     """,
@@ -232,7 +251,7 @@ else:
             with cols[idx]:
                 is_active = (cat == st.session_state["selected_faq_category"])
                 
-                # 💡 선택된 탭: 파일철 모양 + 동일한 박스 크기 및 스타일 적용
+                # 💡 선택된 탭: 파일철 모양 + 사이트 테마 컬러(오렌지 포인트) 적용
                 if is_active:
                     st.markdown(
                         f"""
@@ -241,12 +260,12 @@ else:
                         div[data-testid="stHorizontalBlock"] > div:nth-child({idx+1}) button * {{
                             font-size: 1.1rem !important;
                             font-weight: 700 !important;
-                            color: #111111 !important;
+                            color: #c2410c !important;
                         }}
                         div[data-testid="stHorizontalBlock"] > div:nth-child({idx+1}) button {{
-                            background-color: #e2e8f0 !important;
-                            border: 2px solid #64748b !important;
-                            border-radius: 6px !important;
+                            background-color: #fff7ed !important;
+                            border: 2px solid #f97316 !important;
+                            border-radius: 8px !important;
                             clip-path: polygon(0 25%, 32% 25%, 50% 0, 100% 0, 100% 100%, 0 100%);
                             padding: 10px 4px !important;
                         }}
@@ -276,10 +295,10 @@ else:
             f"""
             <div style="display: flex; align-items: center; padding-top: 10px; padding-bottom: 10px; margin-top: 10px; margin-bottom: 8px;">
                 {icon_html}
-                <span style="font-size: 2.5rem; font-weight: 800; color: #111; line-height: 1.1; letter-spacing: -0.5px;">{current_category}</span>
-                <span style="font-size: 1.2rem; color: #6c757d; margin-left: 16px; font-weight: 600;">({len(group)}개의 질문)</span>
+                <span style="font-size: 2.5rem; font-weight: 800; color: #1e293b; line-height: 1.1; letter-spacing: -0.5px;">{current_category}</span>
+                <span style="font-size: 1.2rem; color: #64748b; margin-left: 16px; font-weight: 600;">({len(group)}개의 질문)</span>
             </div>
-            <hr style="border: none; border-top: 2px solid #495057; margin-top: 8px; margin-bottom: 20px;">
+            <hr style="border: none; border-top: 2px solid #cbd5e1; margin-top: 8px; margin-bottom: 20px;">
             """,
             unsafe_allow_html=True,
         )
@@ -290,7 +309,7 @@ else:
                 st.markdown(
                     f"""
                     <div style="margin-top: 4px; margin-bottom: 12px;">
-                        <div style="font-size: 1.2rem; font-weight: 600; line-height: 1.7; color: #1a1a1a;">
+                        <div style="font-size: 1.2rem; font-weight: 600; line-height: 1.7; color: #1e293b;">
                             {formatted_ans}
                         </div>
                     </div>

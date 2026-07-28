@@ -1,0 +1,52 @@
+# 앗차차! 테마
+#
+# common/ui.py 의 공통 CSS(사이드바 그라데이션, 카드)가 라이트 테마를 전제로
+# 작성되어 있어서, 브라우저가 다크 모드면 사이드바 글씨가 안 보인다.
+# 앱 테마를 라이트로 고정해 어떤 환경에서도 디자인대로 보이게 한다.
+# (다크 테마를 쓰려면 common/ui.py 의 CSS를 함께 손봐야 한다.)
+#
+# 색은 common/ui.py 의 팔레트 상수와 짝을 이룬다. 한쪽만 바꾸면 어긋난다.
+[theme]
+base = "light"
+
+# 브랜드 코랄. 흰 글씨 대비 약 5:1 이라 primary 버튼에서도 읽힌다.
+primaryColor = "#D14314"
+linkColor = "#B8380F"
+
+# 종이 같은 웜 화이트 — 순백보다 눈이 편하고 코랄과 잘 붙는다
+backgroundColor = "#FFFCFA"
+secondaryBackgroundColor = "#F8F2ED"
+textColor = "#26201D"
+borderColor = "#EFE1D7"
+
+codeTextColor = "#B8380F"
+codeBackgroundColor = "#F8F2ED"
+
+dataframeBorderColor = "#EFE1D7"
+dataframeHeaderBackgroundColor = "#F8F2ED"
+
+# 상태 색 (badge, :red[...] 등)
+redColor = "#D92D20"
+orangeColor = "#E07B00"
+yellowColor = "#CA9A04"
+greenColor = "#0E9F6E"
+blueColor = "#3B5BDB"
+violetColor = "#7048E8"
+grayColor = "#6B625C"
+
+# 차트 — 지도 레이어 색(main.py LAYER_COLOR)과 같은 계열로 맞춘다
+chartCategoricalColors = [
+    "#D14314",  # 코랄 (브랜드)
+    "#0E9F6E",  # 공영
+    "#E07B00",  # 민영
+    "#7048E8",  # CCTV
+    "#3B5BDB",  # 내 위치
+    "#D92D20",  # 단속
+    "#6B625C",
+]
+chartSequentialColors = [
+    "#FFF4EC", "#FFE3D0", "#FFCBAC", "#FFAE83", "#FF8F5C",
+    "#F4703B", "#DE5722", "#C24413", "#9E360D", "#7A2909",
+]
+
+font = "Pretendard:https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css"

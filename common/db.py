@@ -6,7 +6,7 @@
 
     # 바인드 파라미터는 SQLAlchemy text() 스타일(:name)을 사용한다.
     df = read_sql(
-        "SELECT * FROM PUBLIC_PARKING_LOT WHERE address LIKE :addr",
+        "SELECT * FROM PARKING_LOT WHERE address LIKE :addr",
         {"addr": "%종로구%"},
     )
 
@@ -24,6 +24,14 @@ from sqlalchemy.engine import Engine
 import config
 
 
+class DataSourceError(RuntimeError):
+    """DB를 쓰기로 해놓고(=.env에 DB_* 설정) DB에서 못 읽었을 때.
+
+    화면에 이유를 그대로 띄우려고 따로 뒀다. 이 예외를 CSV 폴백으로
+    삼키면 안 된다 — 적재 누락이나 접속 끊김이 옛 CSV 데이터에 가려진다.
+    """
+
+
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
     """SQLAlchemy engine을 한 번만 생성해서 재사용한다 (연결 재사용/캐싱)."""
@@ -37,7 +45,27 @@ def get_engine() -> Engine:
         f"@{config.MYSQL_HOST}:{config.MYSQL_PORT}/{config.MYSQL_DATABASE}"
         "?charset=utf8mb4"
     )
-    return create_engine(url)
+
+    # TiDB Cloud Serverless는 SSL이 필수다. 호스트만 보고 자동으로 켠다
+    # (.env의 MYSQL_HOST를 TiDB 주소로 바꾸기만 하면 코드 수정이 필요 없다).
+    #
+    # PyMySQL은 ssl_mode 같은 키를 모른다. 서버 인증서를 검증하려면
+    # CA 번들 경로를 직접 넘겨야 한다. certifi를 쓰면 OS와 무관하게 동작한다.
+    connect_args: dict = {}
+    if "tidbcloud.com" in config.MYSQL_HOST:
+        import certifi
+
+        connect_args = {
+            "ssl": {"ca": certifi.where()},
+            "ssl_verify_cert": True,
+            "ssl_verify_identity": True,
+        }
+
+    # 클라우드는 유휴 연결을 끊는다. 재사용 전에 살아있는지 확인하고,
+    # 오래된 연결은 미리 버린다 (pool_pre_ping / pool_recycle).
+    return create_engine(
+        url, connect_args=connect_args, pool_pre_ping=True, pool_recycle=280
+    )
 
 
 def read_sql(sql: str, params: dict | None = None) -> pd.DataFrame:
