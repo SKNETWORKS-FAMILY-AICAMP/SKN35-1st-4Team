@@ -612,6 +612,7 @@ if only_free:
     filtered = filtered[is_free]
 
 has_center = center_name != "사용 안 함"
+out_of_area = False
 if has_center:
     if center_name == "내 위치":
         center_lat, center_lng = position["lat"], position["lng"]
@@ -621,7 +622,16 @@ if has_center:
     with_coord["distance_km"] = with_coord.apply(
         lambda r: haversine_km(center_lat, center_lng, r["latitude"], r["longitude"]), axis=1
     )
-    filtered = with_coord[with_coord["distance_km"] <= radius_km]
+    near = with_coord[with_coord["distance_km"] <= radius_km]
+
+    # 수집 범위가 종로구뿐이라, 다른 동네에서 위치를 잡으면 반경 1km 안에
+    # 주차장이 하나도 없다. 그때 빈 목록을 주면 "왜 아무것도 없지?" 가 되므로
+    # 반경을 풀고 가까운 순으로 보여주면서 범위 밖이라고 알려준다.
+    if near.empty and not with_coord.empty:
+        out_of_area = True
+        filtered = with_coord.nsmallest(30, "distance_km")
+    else:
+        filtered = near
 else:
     filtered = filtered.assign(distance_km=0.0)
 
@@ -648,39 +658,48 @@ metrics[3].metric(
     help="검색 결과의 중앙값", border=True,
 )
 
-if ranked.empty:
+if out_of_area:
+    st.info(
+        f"현재 위치는 수집 범위({DEFAULT_DISTRICT}) 밖입니다. "
+        "반경 제한을 풀고 **가까운 순으로** 보여드립니다.",
+        icon=":material/travel_explore:",
+    )
+
+# 결과가 없어도 st.stop() 하지 않는다.
+# 지도는 맨 위 map_slot 에 '나중에' 채워지는데, 여기서 멈추면 그 코드까지
+# 도달하지 못해 지도가 통째로 사라진다 (위치를 잡는 순간 지도가 없어지던 원인).
+no_results = ranked.empty
+if no_results:
     st.warning(
-        "조건에 맞는 주차장이 없습니다. 반경을 넓히거나 키워드·필터를 바꿔보세요. "
+        "조건에 맞는 주차장이 없습니다. 키워드·필터를 바꿔보세요. "
         "사이드바 맨 아래 `조건 초기화`로 한 번에 되돌릴 수 있습니다.",
         icon=":material/search_off:",
     )
-    with st.expander("데이터 출처", icon=":material/info:"):
-        st.write("\n".join(f"- {note}" for note in source_notes))
-    st.stop()
+    sort_label = "추천순"
+else:
+    ranked["요금"] = ranked.apply(format_fee, axis=1)
+    ranked["운영시간"] = ranked.apply(format_hours, axis=1)
+    ranked["여유"] = ranked.apply(format_availability, axis=1)
 
-ranked["요금"] = ranked.apply(format_fee, axis=1)
-ranked["운영시간"] = ranked.apply(format_hours, axis=1)
-ranked["여유"] = ranked.apply(format_availability, axis=1)
-
-sort_label = st.segmented_control(
-    "정렬",
-    ["추천순", "요금 낮은순", "여유 많은순", "가까운순", "이름순"],
-    default="추천순",
-    key="sort",
-    label_visibility="collapsed",
-)
-sort_keys = {
-    "추천순": ("total_score", False),
-    "요금 낮은순": ("estimated_fee", True),
-    "여유 많은순": ("score_availability", False),
-    "가까운순": ("distance_km", True),
-    "이름순": ("parking_name", True),
-}
-sort_col, ascending = sort_keys.get(sort_label or "추천순", ("total_score", False))
-if sort_col == "distance_km" and not has_center:
-    st.caption("`가까운순`은 사이드바에서 기준 위치를 골라야 동작합니다. 추천순으로 표시합니다.")
-    sort_col, ascending = "total_score", False
-ranked = ranked.sort_values(sort_col, ascending=ascending).reset_index(drop=True)
+    sort_label = st.segmented_control(
+        "정렬",
+        ["추천순", "요금 낮은순", "여유 많은순", "가까운순", "이름순"],
+        default="추천순",
+        key="sort",
+        label_visibility="collapsed",
+    )
+    sort_keys = {
+        "추천순": ("total_score", False),
+        "요금 낮은순": ("estimated_fee", True),
+        "여유 많은순": ("score_availability", False),
+        "가까운순": ("distance_km", True),
+        "이름순": ("parking_name", True),
+    }
+    sort_col, ascending = sort_keys.get(sort_label or "추천순", ("total_score", False))
+    if sort_col == "distance_km" and not has_center:
+        st.caption("`가까운순`은 사이드바에서 기준 위치를 골라야 동작합니다. 추천순으로 표시합니다.")
+        sort_col, ascending = "total_score", False
+    ranked = ranked.sort_values(sort_col, ascending=ascending).reset_index(drop=True)
 
 # ── 통합 지도 ─────────────────────────────────────────────────
 def _markers(df, name_col, category, info_series, details=None):
@@ -736,7 +755,7 @@ if show_cctv and not cctv.empty:
         )
     )
 
-if show_parking:
+if show_parking and not no_results:
     hour_label = f"{hours:g}시간"
     layers.append(
         _markers(
@@ -951,72 +970,73 @@ with map_slot:
 # ── 결과: 카드 + 표 ───────────────────────────────────────────
 # 표는 정보 밀도는 높지만 "어디로 갈지 고르는" 화면으로는 읽기 나쁘다.
 # 상위 6곳은 카드로 크게 보여 주고, 나머지는 표로 접어 둔다.
-section("추천 주차장", f"{sort_label or '추천순'} 기준 상위 {min(6, len(ranked))}곳")
+if not no_results:
+    section("추천 주차장", f"{sort_label or '추천순'} 기준 상위 {min(6, len(ranked))}곳")
 
-top = ranked.head(6)
-cards = []
-for _, lot in top.iterrows():
-    available = lot.get("available")
-    capacity = lot.get("capacity")
-    cards.append(
-        {
-            "name": str(lot["parking_name"]),
-            "category": str(lot.get("lot_category") or ""),
-            "kind": str(lot.get("lot_type") or ""),
-            "fee": int(lot["estimated_fee"]),
-            "distance_km": float(lot["distance_km"]) if has_center else None,
-            # 보행 속도 70m/분 기준 (신호 대기 포함한 대략치)
-            "walk_min": max(1, round(float(lot["distance_km"]) * 1000 / 70))
-            if has_center else None,
-            "available": None if pd.isna(available) else int(available),
-            "capacity": None if pd.isna(capacity) else int(capacity),
-            "hours_text": str(lot.get("운영시간") or ""),
-            # 원본에 요금이 안 실린 곳은 계산상 0원이 된다. 무료로 오해하지 않게 구분.
-            "fee_known": bool(pd.notna(lot.get("base_fee"))),
-        }
-    )
-parking_cards(cards, hours)
+    top = ranked.head(6)
+    cards = []
+    for _, lot in top.iterrows():
+        available = lot.get("available")
+        capacity = lot.get("capacity")
+        cards.append(
+            {
+                "name": str(lot["parking_name"]),
+                "category": str(lot.get("lot_category") or ""),
+                "kind": str(lot.get("lot_type") or ""),
+                "fee": int(lot["estimated_fee"]),
+                "distance_km": float(lot["distance_km"]) if has_center else None,
+                # 보행 속도 70m/분 기준 (신호 대기 포함한 대략치)
+                "walk_min": max(1, round(float(lot["distance_km"]) * 1000 / 70))
+                if has_center else None,
+                "available": None if pd.isna(available) else int(available),
+                "capacity": None if pd.isna(capacity) else int(capacity),
+                "hours_text": str(lot.get("운영시간") or ""),
+                # 원본에 요금이 안 실린 곳은 계산상 0원이 된다. 무료로 오해하지 않게 구분.
+                "fee_known": bool(pd.notna(lot.get("base_fee"))),
+            }
+        )
+    parking_cards(cards, hours)
 
-with st.container(horizontal=True, vertical_alignment="center"):
-    st.markdown(f"**전체 {len(ranked):,}곳**", width="stretch")
-    st.download_button(
-        "CSV 내려받기",
-        data=ranked.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"주차장_검색결과_{district}_{hours:g}시간.csv",
-        mime="text/csv",
-        icon=":material/download:",
-        width="content",
-    )
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.markdown(f"**전체 {len(ranked):,}곳**", width="stretch")
+        st.download_button(
+            "CSV 내려받기",
+            data=ranked.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"주차장_검색결과_{district}_{hours:g}시간.csv",
+            mime="text/csv",
+            icon=":material/download:",
+            width="content",
+        )
 
-# 카드로 훑고 고르는 게 기본이라, 자세히 비교하고 싶을 때만 표를 편다.
-display_columns = {
-    "parking_name": st.column_config.TextColumn("주차장명", width="medium"),
-    "lot_category": st.column_config.TextColumn("구분", width="small"),
-    "lot_type": st.column_config.TextColumn("유형", width="small"),
-    "address": st.column_config.TextColumn("주소", width="medium"),
-    "estimated_fee": st.column_config.NumberColumn(
-        f"{hours:g}시간 예상요금", format="%,d원", width="small"
-    ),
-    "요금": st.column_config.TextColumn("요금 체계", width="medium"),
-    "운영시간": st.column_config.TextColumn("운영시간", width="small"),
-    "여유": st.column_config.TextColumn("주차면", width="small"),
-    "total_score": st.column_config.ProgressColumn(
-        "추천 점수", min_value=0.0, max_value=1.0, format="%.2f", width="small"
-    ),
-}
-if has_center:
-    display_columns["distance_km"] = st.column_config.NumberColumn(
-        "거리", format="%.2f km", width="small"
-    )
+    # 카드로 훑고 고르는 게 기본이라, 자세히 비교하고 싶을 때만 표를 편다.
+    display_columns = {
+        "parking_name": st.column_config.TextColumn("주차장명", width="medium"),
+        "lot_category": st.column_config.TextColumn("구분", width="small"),
+        "lot_type": st.column_config.TextColumn("유형", width="small"),
+        "address": st.column_config.TextColumn("주소", width="medium"),
+        "estimated_fee": st.column_config.NumberColumn(
+            f"{hours:g}시간 예상요금", format="%,d원", width="small"
+        ),
+        "요금": st.column_config.TextColumn("요금 체계", width="medium"),
+        "운영시간": st.column_config.TextColumn("운영시간", width="small"),
+        "여유": st.column_config.TextColumn("주차면", width="small"),
+        "total_score": st.column_config.ProgressColumn(
+            "추천 점수", min_value=0.0, max_value=1.0, format="%.2f", width="small"
+        ),
+    }
+    if has_center:
+        display_columns["distance_km"] = st.column_config.NumberColumn(
+            "거리", format="%.2f km", width="small"
+        )
 
-with st.expander("표로 자세히 비교하기", icon=":material/table_rows:"):
-    st.dataframe(
-        ranked[[c for c in display_columns if c in ranked.columns]],
-        column_config=display_columns,
-        hide_index=True,
-        height=420,
-        key="results",
-    )
+    with st.expander("표로 자세히 비교하기", icon=":material/table_rows:"):
+        st.dataframe(
+            ranked[[c for c in display_columns if c in ranked.columns]],
+            column_config=display_columns,
+            hide_index=True,
+            height=420,
+            key="results",
+        )
 
 with st.expander("데이터 출처 · 계산 방법", icon=":material/info:"):
     st.write("\n".join(f"- {note}" for note in source_notes))

@@ -84,12 +84,20 @@ def browser_position(key: str = "geolocation", rerun_if_late: bool = False) -> d
     rerun_if_late: 이 버튼이 스크립트 후반(지도 옆 등)에 그려질 때 True 로 준다.
         좌표가 도착한 시점엔 위험 판정 등 앞부분 계산이 이미 끝난 뒤라,
         즉시 한 번 다시 그려야 방금 받은 위치가 화면 전체에 반영된다.
-        (result.position 은 클릭한 그 rerun 에서만 값이 있어 무한 재실행은 없다)
+
+        주의: "트리거 값이 있으면 무조건 rerun" 으로 짜면 안 된다. st.rerun() 으로
+        실행을 중단하면 트리거가 소비되지 않은 채 남아 다음 실행에서 또 보이고,
+        또 rerun… 무한 반복에 빠진다. 그 동안 버튼 뒤에 그려질 지도가 영영
+        안 그려져 "위치 버튼을 누르면 지도가 사라지는" 증상이 된다.
+        그래서 세션에 저장된 값과 '실제로 달라졌을 때만' 다시 그린다 —
+        같은 좌표가 두 번째로 오면 이미 반영된 상태라 그냥 지나가고,
+        그 실행이 정상 종료되면서 트리거도 소비된다.
     """
     result = _geolocation(key=key, on_position_change=lambda: None)
     if result.position:
+        previous = st.session_state.get(SESSION_KEY)
         st.session_state[SESSION_KEY] = result.position
-        if rerun_if_late:
+        if rerun_if_late and previous != result.position:
             st.rerun()
     return st.session_state.get(SESSION_KEY)
 
