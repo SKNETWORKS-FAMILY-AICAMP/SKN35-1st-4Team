@@ -1,5 +1,5 @@
 """
-앗차차! — 진입점(첫 화면).
+앗찻차! — 진입점(첫 화면).
 
 실행
     uv run streamlit run main.py
@@ -99,7 +99,7 @@ st.html(
 # 그래서 자리만 먼저 잡고 나중에 채운다 (지도·절약 배너도 같은 방식).
 hero_slot = st.container()
 map_slot = st.container()
-# 지도 바로 아래 '앗차차! 얼마 아껴요' 배너 자리 (위험 판정이 끝나면 채운다)
+# 지도 바로 아래 '앗찻차! 얼마 아껴요' 배너 자리 (위험 판정이 끝나면 채운다)
 banner_slot = st.container()
 
 LAYER_COLOR = {
@@ -154,7 +154,7 @@ source_notes = [*source_notes, hotspot_note, cctv_note]
 with hero_slot:
     hero(
         MARK_ALERT,
-        "앗차차! 여기 세워도 될까?",
+        "앗찻차! 여기 세워도 될까?",
         "지금 자리가 단속 위험 구역인지 확인하고, 가까운 합법 주차장을 바로 찾으세요.",
         chips=[
             f"주차장 <b>{len(all_lots):,}</b>곳",
@@ -352,7 +352,7 @@ with st.sidebar:
 # ── 구역별 과태료 팝업 ────────────────────────────────────────
 # 금액을 크게 보여주는 연출은 지도 아래 배너(common/ui.py savings_banner)로 옮겼다.
 # 팝업은 "구역마다 얼마나 다른가"를 더 알고 싶을 때만 여는 보조 화면이다.
-@st.dialog("앗차차! 구역마다 과태료가 다릅니다", width="small")
+@st.dialog("앗찻차! 구역마다 과태료가 다릅니다", width="small")
 def show_fine_dialog(fine: dict, cheapest: dict | None) -> None:
     if cheapest:
         saving = fine["amount"] - cheapest["fee"]

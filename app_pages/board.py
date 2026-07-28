@@ -21,7 +21,7 @@ HERO_SLOT = st.container()
 # 테이블 레이아웃 및 스타일 커스텀 CSS
 st.html("""
     <style>
-    /* 게시판 표 — 앗차차 팔레트에 맞춘 카드형 행 */
+    /* 게시판 표 — 앗찻차 팔레트에 맞춘 카드형 행 */
     .board-header {
         font-size: 14px !important;
         font-weight: 700 !important;

@@ -1,5 +1,5 @@
 """
-'앗차차!' 디자인 시스템 — 모든 페이지가 공유하는 룩앤필.
+'앗찻차!' 디자인 시스템 — 모든 페이지가 공유하는 룩앤필.
 
 사용법 (각 페이지 상단):
     from common.ui import apply_style, hero, section
@@ -10,7 +10,7 @@
     section("주차 등록", "어디에 세웠는지 남겨두세요")
 
 브랜드
-    앗차차! — "앗, 여기 세우면 안 되는 곳이었네" 하고 알아채는 순간을 잡아주는 서비스.
+    앗찻차! — "앗, 여기 세우면 안 되는 곳이었네" 하고 알아채는 순간을 잡아주는 서비스.
     톤은 밝고 가볍게. 다만 불법주정차를 부추기지 않는다. 겁주기보다
     "합법 주차장이 이만큼 싸다"를 보여주는 쪽으로 문구를 쓴다.
 
@@ -34,7 +34,7 @@ from pathlib import Path
 import streamlit as st
 
 # ── 브랜드 팔레트 ────────────────────────────────────────────────
-BRAND = "#D14314"        # 앗차차 코랄 (primaryColor)
+BRAND = "#D14314"        # 앗찻차 코랄 (primaryColor)
 BRAND_LIGHT = "#FF8A3D"  # 그라데이션 밝은 쪽
 BRAND_DEEP = "#8A2B0B"   # 그라데이션 어두운 쪽 / 제목
 BRAND_SOFT = "#FFF1E8"   # 아주 옅은 코랄 면
@@ -465,7 +465,7 @@ def brand_header() -> None:
     st.html(
         f"""
         <div class="brand">
-          {svg_img(LOGO.read_text(encoding="utf-8"), 176, 47, alt="앗차차")}
+          {svg_img(LOGO.read_text(encoding="utf-8"), 176, 47, alt="앗찻차")}
           <div class="brand-tag">여기 세워도 될까? 3초 만에 확인</div>
         </div>
         """
@@ -790,7 +790,7 @@ def savings_banner(
     hours: float = 2.0,
     walk_min: int | None = None,
 ) -> None:
-    """지도 아래에 붙는 '앗차차!' 절약 배너 (팝업이 아니라 항상 보인다)."""
+    """지도 아래에 붙는 '앗찻차!' 절약 배너 (팝업이 아니라 항상 보인다)."""
     coins = "".join(
         f'<span class="save-coin" style="left:{left}%; '
         f'animation-delay:{delay}s; font-size:{size}px">{glyph}</span>'
@@ -808,7 +808,7 @@ def savings_banner(
             <div class="save-banner">
               {coins}
               <div class="save-row">
-                <span class="save-lede">앗차차! 여기 세우면 {fine:,}원인데,</span>
+                <span class="save-lede">앗찻차! 여기 세우면 {fine:,}원인데,</span>
                 <span class="save-amt">{saving:,}원 아껴요</span>
               </div>
               <div class="save-sub">
@@ -825,7 +825,7 @@ def savings_banner(
         <div class="save-banner">
           {coins}
           <div class="save-row">
-            <span class="save-lede">앗차차! 여기 세우면</span>
+            <span class="save-lede">앗찻차! 여기 세우면</span>
             <span class="save-amt">{fine:,}원</span>
           </div>
           <div class="save-sub">불법주정차 과태료(승용차 일반 구역)입니다.
@@ -871,7 +871,7 @@ def savings_report(log_count: int, saved: int) -> None:
           <div>
             <div class="big">지금까지 {saved:,}원 아꼈어요</div>
             <div class="cap">주차 기록 {log_count:,}건 × 과태료 40,000원 기준 —
-              그때마다 앗차차 하지 않은 결과입니다.</div>
+              그때마다 앗찻차 하지 않은 결과입니다.</div>
           </div>
         </div>
         """
@@ -972,7 +972,7 @@ def map_legend(items: list[tuple[str, str, str]], show_heat: bool = False) -> No
 def footer(notes: list[str]) -> None:
     """페이지 맨 아래 출처·주의 문구."""
     lines = "".join(f"<div>{n}</div>" for n in notes)
-    st.html(f'<div class="foot"><b>앗차차!</b> · 종로구 주정차 안내{lines}</div>')
+    st.html(f'<div class="foot"><b>앗찻차!</b> · 종로구 주정차 안내{lines}</div>')
 
 
 # ═══════════════════════════════════════════════════════════════

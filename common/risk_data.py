@@ -460,7 +460,7 @@ def time_advice(profile: pd.Series, now: datetime | None = None) -> dict | None:
 # 구역 시각화 (격자 밀집도 -> 카카오맵 Polygon)
 # ---------------------------------------------------------------------------
 # 밀집도 단계별 (채우기 색, 투명도). 뒤로 갈수록 진하다.
-# 앗차차 팔레트의 순차색(.streamlit/config.toml chartSequentialColors)과 같은 계열.
+# 앗찻차 팔레트의 순차색(.streamlit/config.toml chartSequentialColors)과 같은 계열.
 # 옅은 살구 -> 진한 벽돌색 순으로 뜨거워진다.
 GRID_LEVELS = [
     ("#FFCBAC", 0.30),  # 낮음

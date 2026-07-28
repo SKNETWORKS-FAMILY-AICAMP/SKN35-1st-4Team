@@ -1,5 +1,5 @@
 """
-앗차차! — 앱 진입점(라우터).
+앗찻차! — 앱 진입점(라우터).
 
 실행
     uv run streamlit run main.py
@@ -23,7 +23,7 @@ from common.auth import current_user, logout
 from common.ui import apply_style, brand_header
 
 st.set_page_config(
-    page_title="앗차차! 주정차 알림",
+    page_title="앗찻차! 주정차 알림",
     page_icon="assets/atchacha_icon.svg",
     layout="wide",
 )
