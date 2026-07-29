@@ -91,7 +91,7 @@ uv run streamlit run main.py
 | `SEOUL_OPENAPI_KEY` | 실시간 주차 여유 (OA-21709) | 여유 정보 없이 동작 |
 
 카카오 키는 [developers.kakao.com](https://developers.kakao.com) → 플랫폼 → Web 에
-`http://localhost:8501` 이 등록돼 있어야 합니다 (**포트가 다르면 차단**).
+`http://localhost:8501`, 'https://atchacha.streamlit.app' 이 등록돼 있어야 합니다 (**포트가 다르면 차단**).
 
 ## 데이터 적재
 
