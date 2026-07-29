@@ -25,12 +25,13 @@
 
 ## 팀 (SKN35 1st 4Team)
 
-| 담당 | 파트 | 주요 파일 |
-|---|---|---|
-| 승희 | 통합 홈(지도·위험 판정·추천), 로그인·주차기록, 디자인 시스템, TiDB 적재·배포 | `main.py`, `app_pages/home.py`, `app_pages/login.py`, `app_pages/mypage.py`, `common/*`, `collectors/seoul_parking.py`, `loaders/*` |
-| 치훈 | 불법주정차 단속 이력 수집·정제 (OA-22190) | `collectors/enforcement_history.py` → `ENFORCEMENT_HISTORY` |
-| 종원 | 단속 CCTV 위치 수집 (OA-20471) | `collectors/cctv_api.py` → `CCTV_INFO` |
-| 연주 · 은미 | FAQ 크롤링·페이지, 민원 게시판 | `collectors/faq_crawler_*.py`, `app_pages/faq.py`, `app_pages/board.py`, `loaders/load_to_complain.py` |
+| 이름 | 역할 | 담당 데이터 | 주요 파일 |
+|---|---|---|---|
+| **박종원** | **팀장** · 발표 준비 | 단속 CCTV 위치 (OA-20471) → `CCTV_INFO` 196대 | `collectors/cctv_api.py` |
+| **나치훈** | 데이터 수집·관리 | 불법주정차 다발구역 (OA-22190) → `ENFORCEMENT_HISTORY` 232,853건 | `collectors/enforcement_history_api.py` |
+| **정은미** | 데이터 수집·관리 · 화면 구현 | 종로구 상담민원 → `complain` 91건 | `collectors/faq_crawler_b.py` (Selenium), `app_pages/board.py`, `loaders/load_to_complain.py` |
+| **김연주** | 데이터 수집·관리 · 화면 구현 | 주정차 FAQ → `FAQ` 90건 · 주정차 고시공고 | `collectors/faq_crawler_a.py` (고시공고), `app_pages/faq.py` |
+| **이승희** | 데이터 수집·관리 · 화면 구현 · 협업 관리 | 주차장 정보 → `PARKING_LOT` 232곳 | `collectors/seoul_parking.py`, `main.py`, `app_pages/home.py`, `app_pages/login.py`, `app_pages/mypage.py`, `common/*`, `loaders/*` |
 
 > 초기에 있던 단속 다발구역·CCTV 개별 페이지는 홈 지도의 레이어로 통합되었습니다.
 > 수집·정제한 데이터는 그대로 홈 화면의 핵심 재료로 쓰입니다.
